@@ -2414,7 +2414,26 @@ static void hci_conn_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 
 	BT_DBG("%s", hdev->name);
 
+
+	if (hdev->bus == HCI_VIRTUAL && ev->status == 0x00 &&
+	    ev->link_type == ACL_LINK) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_CONN_COMPLETE_ALLOW_STACK_VHCI_DIAG addr=%pMR link_type=%u status=0x%2.2x handle=0x%4.4x bus=%u allowing_stack_accept\\n",
+			    &ev->bdaddr, ev->link_type, ev->status,
+			    __le16_to_cpu(ev->handle), hdev->bus);
+	}
+
+
 	hci_dev_lock(hdev);
+
+	if (hdev->bus == HCI_VIRTUAL && ev->status == 0x00 &&
+	    ev->link_type == ACL_LINK) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_CONN_COMPLETE_AFTER_LOCK_ALLOW_LOOKUP_VHCI_DIAG addr=%pMR link_type=%u status=0x%2.2x handle=0x%4.4x bus=%u allowing_lookup\\n",
+			    &ev->bdaddr, ev->link_type, ev->status,
+			    __le16_to_cpu(ev->handle), hdev->bus);
+	}
+
 
 	conn = hci_conn_hash_lookup_ba(hdev, ev->link_type, &ev->bdaddr);
 	if (!conn) {
@@ -2428,7 +2447,16 @@ static void hci_conn_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 		conn->type = SCO_LINK;
 	}
 
-	if (!ev->status) {
+
+
+	if (hdev->bus == HCI_VIRTUAL && ev->status == 0x00 &&
+	    ev->link_type == ACL_LINK) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_CONN_COMPLETE_AFTER_LOOKUP_ALLOW_STATE_VHCI_DIAG addr=%pMR link_type=%u status=0x%2.2x handle=0x%4.4x bus=%u conn=%p allowing_handle_state\\n",
+			    &ev->bdaddr, ev->link_type, ev->status,
+			    __le16_to_cpu(ev->handle), hdev->bus, conn);
+	}
+if (!ev->status) {
 		conn->handle = __le16_to_cpu(ev->handle);
 
 		if (conn->type == ACL_LINK) {
@@ -2443,8 +2471,28 @@ static void hci_conn_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 		} else
 			conn->state = BT_CONNECTED;
 
-		hci_debugfs_create_conn(conn);
+
+		if (hdev->bus == HCI_VIRTUAL && ev->status == 0x00 &&
+		    ev->link_type == ACL_LINK) {
+			bt_dev_warn(hdev,
+				    "GTA4LWIFI_CONN_COMPLETE_AFTER_STATE_ALLOW_DEBUGFS_SYSFS_VHCI_DIAG addr=%pMR link_type=%u status=0x%2.2x handle=0x%4.4x bus=%u conn=%p state=%u disc_timeout=%lu allowing_debugfs_sysfs\\n",
+				    &ev->bdaddr, ev->link_type, ev->status,
+				    __le16_to_cpu(ev->handle), hdev->bus, conn,
+				    conn->state, conn->disc_timeout);
+		}
+
+hci_debugfs_create_conn(conn);
 		hci_conn_add_sysfs(conn);
+
+		if (hdev->bus == HCI_VIRTUAL && ev->status == 0x00 &&
+		    ev->link_type == ACL_LINK) {
+			bt_dev_warn(hdev,
+				    "GTA4LWIFI_CONN_COMPLETE_AFTER_SYSFS_ALLOW_AUTH_FLAGS_VHCI_DIAG addr=%pMR link_type=%u status=0x%2.2x handle=0x%4.4x bus=%u conn=%p state=%u allowing_auth_flags\\n",
+				    &ev->bdaddr, ev->link_type, ev->status,
+				    __le16_to_cpu(ev->handle), hdev->bus, conn,
+				    conn->state);
+		}
+
 
 		if (test_bit(HCI_AUTH, &hdev->flags))
 			set_bit(HCI_CONN_AUTH, &conn->flags);
@@ -2452,7 +2500,17 @@ static void hci_conn_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 		if (test_bit(HCI_ENCRYPT, &hdev->flags))
 			set_bit(HCI_CONN_ENCRYPT, &conn->flags);
 
-		/* Get remote features */
+
+		if (hdev->bus == HCI_VIRTUAL && ev->status == 0x00 &&
+		    ev->link_type == ACL_LINK) {
+			bt_dev_warn(hdev,
+				    "GTA4LWIFI_CONN_COMPLETE_AFTER_AUTH_FLAGS_ALLOW_REMOTE_FEATURES_VHCI_DIAG addr=%pMR link_type=%u status=0x%2.2x handle=0x%4.4x bus=%u conn=%p state=%u flags=0x%lx allowing_remote_features\\n",
+				    &ev->bdaddr, ev->link_type, ev->status,
+				    __le16_to_cpu(ev->handle), hdev->bus, conn,
+				    conn->state, conn->flags);
+		}
+
+/* Get remote features */
 		if (conn->type == ACL_LINK) {
 			struct hci_cp_read_remote_features cp;
 			cp.handle = ev->handle;
@@ -2461,6 +2519,16 @@ static void hci_conn_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 
 			hci_req_update_scan(hdev);
 		}
+
+		if (hdev->bus == HCI_VIRTUAL && ev->status == 0x00 &&
+		    ev->link_type == ACL_LINK) {
+			bt_dev_warn(hdev,
+				    "GTA4LWIFI_CONN_COMPLETE_AFTER_REMOTE_FEATURES_ALLOW_CFM_VHCI_DIAG addr=%pMR link_type=%u status=0x%2.2x handle=0x%4.4x bus=%u conn=%p state=%u flags=0x%lx allowing_cfm\\n",
+				    &ev->bdaddr, ev->link_type, ev->status,
+				    __le16_to_cpu(ev->handle), hdev->bus, conn,
+				    conn->state, conn->flags);
+		}
+
 
 		/* Set packet type for incoming connection */
 		if (!conn->out && hdev->hci_ver < BLUETOOTH_VER_2_0) {
@@ -2477,16 +2545,122 @@ static void hci_conn_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 					    conn->dst_type, ev->status);
 	}
 
-	if (conn->type == ACL_LINK)
+
+	if (hdev->bus == HCI_VIRTUAL && ev->status == 0x00 &&
+	    ev->link_type == ACL_LINK) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_CONN_COMPLETE_BEFORE_SCO_SETUP_ALLOW_SCO_VHCI_DIAG addr=%pMR link_type=%u status=0x%2.2x handle=0x%4.4x bus=%u conn=%p state=%u flags=0x%lx allowing_sco_setup\\n",
+			    &ev->bdaddr, ev->link_type, ev->status,
+			    __le16_to_cpu(ev->handle), hdev->bus, conn,
+			    conn->state, conn->flags);
+	}
+
+if (conn->type == ACL_LINK)
 		hci_sco_setup(conn, ev->status);
 
+	if (hdev->bus == HCI_VIRTUAL && ev->status == 0x00 &&
+	    ev->link_type == ACL_LINK) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_CONN_COMPLETE_AFTER_SCO_SETUP_ALLOW_PRE_CFM_VHCI_DIAG addr=%pMR link_type=%u status=0x%2.2x handle=0x%4.4x bus=%u conn=%p state=%u flags=0x%lx allowing_gap_before_cfm_callsite\\n",
+			    &ev->bdaddr, ev->link_type, ev->status,
+			    __le16_to_cpu(ev->handle), hdev->bus, conn,
+			    conn->state, conn->flags);
+	}
+
+	if (hdev->bus == HCI_VIRTUAL && ev->status == 0x00 &&
+	    ev->link_type == ACL_LINK) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_CONN_COMPLETE_ALLOW_PAST_IMMEDIATE_PRE_CFM_ZONE_VHCI_DIAG addr=%pMR link_type=%u status=0x%2.2x handle=0x%4.4x bus=%u conn=%p state=%u flags=0x%lx allowing_tail_unlock_check_pending_test\n",
+			    &ev->bdaddr, ev->link_type, ev->status,
+			    __le16_to_cpu(ev->handle), hdev->bus, conn,
+			    conn->state, conn->flags);
+	}
+
+
+
 	if (ev->status) {
-		hci_connect_cfm(conn, ev->status);
+
+	/* GTA4LWIFI: PS4 DualShock reaches connection-complete safely, but
+	 * allowing the normal connect-confirm fanout appears to reboot this
+	 * device before pstore can capture a panic.  Fence immediately before
+	 * hci_connect_cfm(), which is the handoff into L2CAP/HID/HIDP users.
+	 *
+	 * Address 90:89:5F:25:A9:FD is stored little-endian in bdaddr_t.
+	 */
+	if (hdev->bus == HCI_VIRTUAL &&
+	    ev->status == 0x00 &&
+	    ev->link_type == ACL_LINK &&
+	    ev->bdaddr.b[0] == 0xfd &&
+	    ev->bdaddr.b[1] == 0xa9 &&
+	    ev->bdaddr.b[2] == 0x25 &&
+	    ev->bdaddr.b[3] == 0x5f &&
+	    ev->bdaddr.b[4] == 0x89 &&
+	    ev->bdaddr.b[5] == 0x90) {
+		struct hci_cp_disconnect cp = {
+			.handle = ev->handle,
+			.reason = 0x13,
+		};
+
+		pr_err("GTA4LWIFI_PS4_CONN_COMPLETE_BEFORE_CFM_FENCE_VHCI_DIAG hdev=%s addr=%pMR link_type=%u status=0x%02x handle=0x%4.4x bus=%u conn_state=%u sending_disconnect_skipping_hci_connect_cfm\n",
+		       hdev->name, &ev->bdaddr, ev->link_type, ev->status,
+		       __le16_to_cpu(ev->handle), hdev->bus, conn->state);
+
+		hci_dev_unlock(hdev);
+		hci_send_cmd(hdev, HCI_OP_DISCONNECT, sizeof(cp), &cp);
+		return;
+	}
+
+
+	if (hdev->bus == HCI_VIRTUAL && ev->status == 0x00 &&
+	    ev->link_type == ACL_LINK) {
+		struct hci_cp_disconnect dcp;
+
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_CONN_COMPLETE_BEFORE_HCI_CONNECT_CFM_CALLSITE_FENCE_VHCI_DIAG addr=%pMR link_type=%u status=0x%2.2x handle=0x%4.4x bus=%u conn=%p state=%u flags=0x%lx disconnecting_immediately_before_hci_connect_cfm_callsite\n",
+			    &ev->bdaddr, ev->link_type, ev->status,
+			    __le16_to_cpu(ev->handle), hdev->bus, conn,
+			    conn->state, conn->flags);
+
+		dcp.handle = ev->handle;
+		dcp.reason = HCI_ERROR_REMOTE_USER_TERM;
+		hci_dev_unlock(hdev);
+		hci_send_cmd(hdev, HCI_OP_DISCONNECT, sizeof(dcp), &dcp);
+		return;
+	}
+
+hci_connect_cfm(conn, ev->status);
+
+	if (hdev->bus == HCI_VIRTUAL && ev->status == 0x00 &&
+	    ev->link_type == ACL_LINK) {
+		struct hci_cp_disconnect dcp;
+
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_CONN_COMPLETE_AFTER_CFM_FENCE_VHCI_DIAG addr=%pMR link_type=%u status=0x%2.2x handle=0x%4.4x bus=%u conn=%p state=%u flags=0x%lx disconnecting_after_cfm_before_unlock\n",
+			    &ev->bdaddr, ev->link_type, ev->status,
+			    __le16_to_cpu(ev->handle), hdev->bus, conn,
+			    conn->state, conn->flags);
+
+		dcp.handle = ev->handle;
+		dcp.reason = HCI_ERROR_REMOTE_USER_TERM;
+		hci_dev_unlock(hdev);
+		hci_send_cmd(hdev, HCI_OP_DISCONNECT, sizeof(dcp), &dcp);
+		return;
+	}
+
 		hci_conn_del(conn);
 	} else if (ev->link_type != ACL_LINK)
 		hci_connect_cfm(conn, ev->status);
 
 unlock:
+	if (hdev->bus == HCI_VIRTUAL) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_CONN_COMPLETE_BEFORE_CONN_CHECK_PENDING_FENCE_VHCI_DIAG addr=%pMR link_type=%u status=0x%2.2x handle=0x%4.4x bus=%u dropping_before_hci_conn_check_pending\\n",
+			    &ev->bdaddr, ev->link_type, ev->status,
+			    __le16_to_cpu(ev->handle), hdev->bus);
+		hci_dev_unlock(hdev);
+		return;
+	}
+
 	hci_dev_unlock(hdev);
 
 	hci_conn_check_pending(hdev);
@@ -2509,6 +2683,12 @@ static void hci_conn_request_evt(struct hci_dev *hdev, struct sk_buff *skb)
 	struct hci_conn *conn;
 	__u8 flags = 0;
 
+
+	if (hdev->bus == HCI_VIRTUAL) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_CONN_REQUEST_TOP_LOG_V2_VHCI_DIAG addr=%pMR link_type=%u bus=%u continuing_until_before_accept\n",
+			    &ev->bdaddr, ev->link_type, hdev->bus);
+	}
 	BT_DBG("%s bdaddr %pMR type 0x%x", hdev->name, &ev->bdaddr,
 	       ev->link_type);
 
@@ -2584,6 +2764,12 @@ static void hci_conn_request_evt(struct hci_dev *hdev, struct sk_buff *skb)
 		else
 			cp.role = 0x01; /* Remain slave */
 
+		if (hdev->bus == HCI_VIRTUAL && ev->link_type == ACL_LINK) {
+			bt_dev_warn(hdev,
+				    "GTA4LWIFI_CONN_REQUEST_ALLOW_ACCEPT_VHCI_DIAG addr=%pMR link_type=%u bus=%u allowing_accept_cmd\n",
+				    &ev->bdaddr, ev->link_type, hdev->bus);
+		}
+
 		hci_send_cmd(hdev, HCI_OP_ACCEPT_CONN_REQ, sizeof(cp), &cp);
 	} else if (!(flags & HCI_PROTO_DEFER)) {
 		struct hci_cp_accept_sync_conn_req cp;
@@ -2625,11 +2811,24 @@ static u8 hci_to_mgmt_reason(u8 err)
 static void hci_disconn_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 {
 	struct hci_ev_disconn_complete *ev = (void *) skb->data;
+	if (hdev->bus == HCI_VIRTUAL) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_DISCONN_COMPLETE_TOP_ALLOW_LOOKUP_VHCI_DIAG handle=0x%4.4x reason=0x%2.2x status=0x%2.2x allowing_lookup_lock\n",
+			    __le16_to_cpu(ev->handle), ev->reason, ev->status);
+	}
+
 	u8 reason;
 	struct hci_conn_params *params;
 	struct hci_conn *conn;
 	bool mgmt_connected;
 	u8 type;
+	bdaddr_t gta4lwifi_saved_dst;
+	u16 gta4lwifi_saved_handle;
+	u8 gta4lwifi_saved_reason;
+	u8 gta4lwifi_saved_type;
+	u8 gta4lwifi_saved_state;
+	unsigned long gta4lwifi_saved_flags;
+	bool gta4lwifi_saved_valid = false;
 
 	BT_DBG("%s status 0x%2.2x", hdev->name, ev->status);
 
@@ -2638,6 +2837,13 @@ static void hci_disconn_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 	conn = hci_conn_hash_lookup_handle(hdev, __le16_to_cpu(ev->handle));
 	if (!conn)
 		goto unlock;
+
+	if (hdev->bus == HCI_VIRTUAL && conn->type == ACL_LINK) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_DISCONN_COMPLETE_AFTER_LOOKUP_ALLOW_BOOKKEEPING_VHCI_DIAG addr=%pMR handle=0x%4.4x reason=0x%2.2x status=0x%2.2x state=%u flags=0x%lx conn=%p allowing_bookkeeping_until_mgmt_disconnected\n",
+			    &conn->dst, __le16_to_cpu(ev->handle), ev->reason,
+			    ev->status, conn->state, conn->flags, conn);
+	}
 
 	if (ev->status) {
 		mgmt_disconnect_failed(hdev, &conn->dst, conn->type,
@@ -2686,8 +2892,38 @@ static void hci_disconn_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 
 	type = conn->type;
 
+	if (hdev->bus == HCI_VIRTUAL && conn->type == ACL_LINK) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_DISCONN_COMPLETE_BEFORE_CFM_ALLOW_CFM_VHCI_DIAG addr=%pMR handle=0x%4.4x reason=0x%2.2x state=%u flags=0x%lx conn=%p allowing_hci_disconn_cfm\n",
+			    &conn->dst, __le16_to_cpu(ev->handle), ev->reason,
+			    conn->state, conn->flags, conn);
+	}
+
 	hci_disconn_cfm(conn, ev->reason);
+
+	if (hdev->bus == HCI_VIRTUAL && conn->type == ACL_LINK) {
+		gta4lwifi_saved_dst = conn->dst;
+		gta4lwifi_saved_handle = __le16_to_cpu(ev->handle);
+		gta4lwifi_saved_reason = ev->reason;
+		gta4lwifi_saved_type = conn->type;
+		gta4lwifi_saved_state = conn->state;
+		gta4lwifi_saved_flags = conn->flags;
+		gta4lwifi_saved_valid = true;
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_DISCONN_COMPLETE_AFTER_CFM_ALLOW_CONN_DEL_VHCI_DIAG addr=%pMR handle=0x%4.4x reason=0x%2.2x type=%u state=%u flags=0x%lx conn=%p allowing_hci_conn_del\n",
+			    &gta4lwifi_saved_dst, gta4lwifi_saved_handle,
+			    gta4lwifi_saved_reason, gta4lwifi_saved_type,
+			    gta4lwifi_saved_state, gta4lwifi_saved_flags, conn);
+	}
 	hci_conn_del(conn);
+
+	if (gta4lwifi_saved_valid && hdev->bus == HCI_VIRTUAL) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_DISCONN_COMPLETE_AFTER_CONN_DEL_ALLOW_TAIL_VHCI_DIAG addr=%pMR handle=0x%4.4x reason=0x%2.2x type=%u saved_state=%u saved_flags=0x%lx allowing_tail_after_hci_conn_del\n",
+			    &gta4lwifi_saved_dst, gta4lwifi_saved_handle,
+			    gta4lwifi_saved_reason, gta4lwifi_saved_type,
+			    gta4lwifi_saved_state, gta4lwifi_saved_flags);
+	}
 
 	/* Re-enable advertising if necessary, since it might
 	 * have been disabled by the connection. From the
@@ -2703,7 +2939,22 @@ static void hci_disconn_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 		hci_req_reenable_advertising(hdev);
 
 unlock:
+	if (gta4lwifi_saved_valid && hdev->bus == HCI_VIRTUAL) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_DISCONN_COMPLETE_TAIL_BEFORE_UNLOCK_ALLOW_UNLOCK_VHCI_DIAG addr=%pMR handle=0x%4.4x reason=0x%2.2x type=%u saved_state=%u saved_flags=0x%lx allowing_hci_dev_unlock\n",
+			    &gta4lwifi_saved_dst, gta4lwifi_saved_handle,
+			    gta4lwifi_saved_reason, gta4lwifi_saved_type,
+			    gta4lwifi_saved_state, gta4lwifi_saved_flags);
+	}
 	hci_dev_unlock(hdev);
+	if (gta4lwifi_saved_valid && hdev->bus == HCI_VIRTUAL) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_DISCONN_COMPLETE_TAIL_AFTER_UNLOCK_FENCE_VHCI_DIAG addr=%pMR handle=0x%4.4x reason=0x%2.2x type=%u saved_state=%u saved_flags=0x%lx dropping_after_hci_dev_unlock_before_return\n",
+			    &gta4lwifi_saved_dst, gta4lwifi_saved_handle,
+			    gta4lwifi_saved_reason, gta4lwifi_saved_type,
+			    gta4lwifi_saved_state, gta4lwifi_saved_flags);
+		return;
+	}
 }
 
 static void hci_auth_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
@@ -2711,6 +2962,12 @@ static void hci_auth_complete_evt(struct hci_dev *hdev, struct sk_buff *skb)
 	struct hci_ev_auth_complete *ev = (void *) skb->data;
 	struct hci_conn *conn;
 
+
+	if (hdev->bus == HCI_VIRTUAL) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_AUTH_COMPLETE_TOP_VHCI_DIAG handle=0x%4.4x status=0x%2.2x bus=%u log_only\n",
+			    __le16_to_cpu(ev->handle), ev->status, hdev->bus);
+	}
 	BT_DBG("%s status 0x%2.2x", hdev->name, ev->status);
 
 	hci_dev_lock(hdev);
@@ -2864,6 +3121,12 @@ static void hci_encrypt_change_evt(struct hci_dev *hdev, struct sk_buff *skb)
 	struct hci_ev_encrypt_change *ev = (void *) skb->data;
 	struct hci_conn *conn;
 
+
+	if (hdev->bus == HCI_VIRTUAL) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_ENCRYPT_CHANGE_TOP_VHCI_DIAG handle=0x%4.4x status=0x%2.2x encrypt=0x%2.2x bus=%u log_only\n",
+			    __le16_to_cpu(ev->handle), ev->status, ev->encrypt, hdev->bus);
+	}
 	BT_DBG("%s status 0x%2.2x", hdev->name, ev->status);
 
 	hci_dev_lock(hdev);
@@ -3035,6 +3298,13 @@ static void hci_cmd_complete_evt(struct hci_dev *hdev, struct sk_buff *skb,
 
 	*opcode = __le16_to_cpu(ev->opcode);
 	*status = skb->data[sizeof(*ev)];
+
+	if (hdev->bus == HCI_VIRTUAL &&
+	    (*opcode == HCI_OP_WRITE_CLASS_OF_DEV ||
+	     *opcode == HCI_OP_WRITE_EIR))
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_ADD_UUID_HCI_CC_TOP_TRACE_VHCI_DIAG opcode=0x%04x status=0x%02x ncmd=%u entering_command_complete_dispatch\n",
+			    *opcode, *status, ev->ncmd);
 
 	skb_pull(skb, sizeof(*ev));
 
@@ -3352,6 +3622,13 @@ static void hci_cmd_complete_evt(struct hci_dev *hdev, struct sk_buff *skb,
 		break;
 	}
 
+	if (hdev->bus == HCI_VIRTUAL &&
+	    (*opcode == HCI_OP_WRITE_CLASS_OF_DEV ||
+	     *opcode == HCI_OP_WRITE_EIR))
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_ADD_UUID_HCI_CC_AFTER_HANDLER_TRACE_VHCI_DIAG opcode=0x%04x status=0x%02x opcode_handler_returned\n",
+			    *opcode, *status);
+
 	if (*opcode != HCI_OP_NOP)
 		cancel_delayed_work(&hdev->cmd_timer);
 
@@ -3360,6 +3637,18 @@ static void hci_cmd_complete_evt(struct hci_dev *hdev, struct sk_buff *skb,
 
 	hci_req_cmd_complete(hdev, *opcode, *status, req_complete,
 			     req_complete_skb);
+
+	if (hdev->bus == HCI_VIRTUAL &&
+	    (*opcode == HCI_OP_WRITE_CLASS_OF_DEV ||
+	     *opcode == HCI_OP_WRITE_EIR))
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_ADD_UUID_HCI_CC_AFTER_REQ_LOOKUP_TRACE_VHCI_DIAG opcode=0x%04x status=0x%02x req_complete_set=%u req_complete_skb_set=%u cmd_pending=%u cmd_cnt=%d cmd_q=%u\n",
+			    *opcode, *status,
+			    *req_complete ? 1 : 0,
+			    *req_complete_skb ? 1 : 0,
+			    hci_dev_test_flag(hdev, HCI_CMD_PENDING) ? 1 : 0,
+			    atomic_read(&hdev->cmd_cnt),
+			    skb_queue_len(&hdev->cmd_q));
 
 	if (hci_dev_test_flag(hdev, HCI_CMD_PENDING)) {
 		bt_dev_err(hdev,
@@ -3489,6 +3778,16 @@ static void hci_hardware_error_evt(struct hci_dev *hdev, struct sk_buff *skb)
 	struct hci_ev_hardware_error *ev = (void *) skb->data;
 
 	hdev->hw_error_code = ev->code;
+
+        if (hdev->bus == HCI_VIRTUAL && ev->code == 0x0f) {
+                bt_dev_err(hdev,
+                           "GTA4LWIFI_HARDWARE_ERROR_0F_VHCI_SKIP_ERROR_RESET_VHCI_DIAG "
+                           "code=0x%2.2x bus=%u "
+                           "skipping_hci_error_reset_after_live_hid",
+                           ev->code, hdev->bus);
+                return;
+        }
+
 
 	queue_work(hdev->req_workqueue, &hdev->error_reset);
 }
@@ -3687,6 +3986,11 @@ static void hci_pin_code_request_evt(struct hci_dev *hdev, struct sk_buff *skb)
 	struct hci_ev_pin_code_req *ev = (void *) skb->data;
 	struct hci_conn *conn;
 
+
+        if (hdev->bus == HCI_VIRTUAL)
+                bt_dev_warn(hdev,
+                            "GTA4LWIFI_PIN_CODE_ALLOW_PRE_MGMT_PATH_VHCI_DIAG addr=%pMR bus=%u allowing_lock_lookup_timeout_and_bondable_checks\n",
+                            &ev->bdaddr, hdev->bus);
 	BT_DBG("%s", hdev->name);
 
 	hci_dev_lock(hdev);
@@ -3712,6 +4016,13 @@ static void hci_pin_code_request_evt(struct hci_dev *hdev, struct sk_buff *skb)
 			secure = 1;
 		else
 			secure = 0;
+
+                if (hdev->bus == HCI_VIRTUAL) {
+                        bt_dev_warn(hdev,
+                                    "GTA4LWIFI_PIN_CODE_BEFORE_MGMT_EVENT_FENCE_VHCI_DIAG addr=%pMR bus=%u secure=%u dropping_before_mgmt_pin_code_request\n",
+                                    &ev->bdaddr, hdev->bus, secure);
+                        goto unlock;
+                }
 
 		mgmt_pin_code_request(hdev, &ev->bdaddr, secure);
 	}
@@ -3759,6 +4070,11 @@ static void hci_link_key_request_evt(struct hci_dev *hdev, struct sk_buff *skb)
 	struct hci_conn *conn;
 	struct link_key *key;
 
+
+        if (hdev->bus == HCI_VIRTUAL)
+                bt_dev_warn(hdev,
+                            "GTA4LWIFI_LINK_KEY_REQUEST_ALLOW_REAL_LOOKUP_VHCI_DIAG addr=%pMR bus=%u allowing_hci_find_link_key\n",
+                            &ev->bdaddr, hdev->bus);
 	BT_DBG("%s", hdev->name);
 
 	if (!hci_dev_test_flag(hdev, HCI_MGMT))
@@ -3801,6 +4117,12 @@ static void hci_link_key_request_evt(struct hci_dev *hdev, struct sk_buff *skb)
 	bacpy(&cp.bdaddr, &ev->bdaddr);
 	memcpy(cp.link_key, key->val, HCI_LINK_KEY_SIZE);
 
+        if (hdev->bus == HCI_VIRTUAL)
+                bt_dev_warn(hdev,
+                            "GTA4LWIFI_LINK_KEY_REPLY_REAL_VHCI_DIAG addr=%pMR bus=%u key_type=%u pin_len=%u sending_hci_link_key_reply\n",
+                            &ev->bdaddr, hdev->bus,
+                            key->type, key->pin_len);
+
 	hci_send_cmd(hdev, HCI_OP_LINK_KEY_REPLY, sizeof(cp), &cp);
 
 	hci_dev_unlock(hdev);
@@ -3808,6 +4130,11 @@ static void hci_link_key_request_evt(struct hci_dev *hdev, struct sk_buff *skb)
 	return;
 
 not_found:
+        if (hdev->bus == HCI_VIRTUAL)
+                bt_dev_warn(hdev,
+                            "GTA4LWIFI_LINK_KEY_LOOKUP_MISS_NEG_REPLY_VHCI_DIAG addr=%pMR bus=%u key_not_found_sending_negative_reply\n",
+                            &ev->bdaddr, hdev->bus);
+
 	hci_send_cmd(hdev, HCI_OP_LINK_KEY_NEG_REPLY, 6, &ev->bdaddr);
 	hci_dev_unlock(hdev);
 }
@@ -4338,6 +4665,19 @@ static void hci_io_capa_request_evt(struct hci_dev *hdev, struct sk_buff *skb)
 	struct hci_ev_io_capa_request *ev = (void *) skb->data;
 	struct hci_conn *conn;
 
+
+	if (hdev->bus == HCI_VIRTUAL) {
+		struct hci_cp_io_capability_neg_reply cp;
+
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_IO_CAPA_NEG_REPLY_VHCI_DIAG addr=%pMR bus=%u reason=0x18 negative_reply_before_mgmt\n",
+			    &ev->bdaddr, hdev->bus);
+
+		bacpy(&cp.bdaddr, &ev->bdaddr);
+		cp.reason = 0x18;
+		hci_send_cmd(hdev, HCI_OP_IO_CAPABILITY_NEG_REPLY, sizeof(cp), &cp);
+		return;
+	}
 	BT_DBG("%s", hdev->name);
 
 	hci_dev_lock(hdev);
@@ -4429,6 +4769,15 @@ static void hci_user_confirm_request_evt(struct hci_dev *hdev,
 	int loc_mitm, rem_mitm, confirm_hint = 0;
 	struct hci_conn *conn;
 
+
+	if (hdev->bus == HCI_VIRTUAL) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_USER_CONFIRM_NEG_REPLY_VHCI_DIAG addr=%pMR bus=%u negative_reply_before_mgmt\n",
+			    &ev->bdaddr, hdev->bus);
+
+		hci_send_cmd(hdev, HCI_OP_USER_CONFIRM_NEG_REPLY, 6, &ev->bdaddr);
+		return;
+	}
 	BT_DBG("%s", hdev->name);
 
 	hci_dev_lock(hdev);
@@ -4502,6 +4851,16 @@ static void hci_user_passkey_request_evt(struct hci_dev *hdev,
 {
 	struct hci_ev_user_passkey_req *ev = (void *) skb->data;
 
+
+	if (hdev->bus == HCI_VIRTUAL) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_USER_PASSKEY_NEG_REPLY_VHCI_DIAG addr=%pMR bus=%u negative_reply_if_opcode_exists_before_mgmt\n",
+			    &ev->bdaddr, hdev->bus);
+#ifdef HCI_OP_USER_PASSKEY_NEG_REPLY
+		hci_send_cmd(hdev, HCI_OP_USER_PASSKEY_NEG_REPLY, 6, &ev->bdaddr);
+		return;
+#endif
+	}
 	BT_DBG("%s", hdev->name);
 
 	if (hci_dev_test_flag(hdev, HCI_MGMT))
@@ -4573,6 +4932,12 @@ static void hci_simple_pair_complete_evt(struct hci_dev *hdev,
 	struct hci_ev_simple_pair_complete *ev = (void *) skb->data;
 	struct hci_conn *conn;
 
+
+	if (hdev->bus == HCI_VIRTUAL) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_SIMPLE_PAIR_COMPLETE_TOP_VHCI_DIAG addr=%pMR status=0x%2.2x bus=%u log_only\n",
+			    &ev->bdaddr, ev->status, hdev->bus);
+	}
 	BT_DBG("%s", hdev->name);
 
 	hci_dev_lock(hdev);
@@ -5858,6 +6223,16 @@ void hci_event_packet(struct hci_dev *hdev, struct sk_buff *skb)
 		break;
 
 	case HCI_EV_DISCONN_COMPLETE:
+		if (hdev->bus == HCI_VIRTUAL) {
+			struct hci_ev_disconn_complete *gta4_ev =
+				(struct hci_ev_disconn_complete *) skb->data;
+
+			bt_dev_warn(hdev,
+				    "GTA4LWIFI_DISCONN_EVENT_DISPATCH_ALLOW_HANDLER_VHCI_DIAG handle=0x%4.4x reason=0x%2.2x status=0x%2.2x allowing_hci_disconn_complete_evt\n",
+				    __le16_to_cpu(gta4_ev->handle),
+				    gta4_ev->reason, gta4_ev->status);
+		}
+
 		hci_disconn_complete_evt(hdev, skb);
 		break;
 
@@ -6023,7 +6398,21 @@ void hci_event_packet(struct hci_dev *hdev, struct sk_buff *skb)
 	}
 
 	if (req_complete) {
+		if (hdev->bus == HCI_VIRTUAL &&
+		    (opcode == HCI_OP_WRITE_CLASS_OF_DEV ||
+		     opcode == HCI_OP_WRITE_EIR))
+			bt_dev_warn(hdev,
+				    "GTA4LWIFI_ADD_UUID_REQ_CALLBACK_BEFORE_TRACE_VHCI_DIAG opcode=0x%04x status=0x%02x invoking_req_complete\n",
+				    opcode, status);
+
 		req_complete(hdev, status, opcode);
+
+		if (hdev->bus == HCI_VIRTUAL &&
+		    (opcode == HCI_OP_WRITE_CLASS_OF_DEV ||
+		     opcode == HCI_OP_WRITE_EIR))
+			bt_dev_warn(hdev,
+				    "GTA4LWIFI_ADD_UUID_REQ_CALLBACK_AFTER_TRACE_VHCI_DIAG opcode=0x%04x status=0x%02x req_complete_returned\n",
+				    opcode, status);
 	} else if (req_complete_skb) {
 		if (!hci_get_cmd_complete(hdev, opcode, req_evt, orig_skb)) {
 			kfree_skb(orig_skb);

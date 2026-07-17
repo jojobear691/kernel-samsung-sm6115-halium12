@@ -139,6 +139,11 @@ static int __vhci_create_device(struct vhci_data *data, __u8 opcode)
 	if (opcode & 0x80)
 		set_bit(HCI_QUIRK_RAW_DEVICE, &hdev->quirks);
 
+	pr_err("GTA4LWIFI_VHCI_SETUP_DIAG open opcode=0x%02x bus=%u dev_type=%u quirks=0x%lx raw=%d external=%d\\n",
+	       opcode, hdev->bus, hdev->dev_type, hdev->quirks,
+	       test_bit(HCI_QUIRK_RAW_DEVICE, &hdev->quirks),
+	       test_bit(HCI_QUIRK_EXTERNAL_CONFIG, &hdev->quirks));
+
 	if (hci_register_dev(hdev) < 0) {
 		BT_ERR("Can't register HCI device");
 		hci_free_dev(hdev);
@@ -322,9 +327,25 @@ static void vhci_open_timeout(struct work_struct *work)
 	vhci_create_device(data, amp ? HCI_AMP : HCI_PRIMARY);
 }
 
+/* GTA4LWIFI_VHCI_ONE_OPEN_STATIC_INT_DECL_FIX2:
+ * Visible file-scope one-shot flag for VHCI restart protection.
+ */
+static int gta4lwifi_vhci_open_once_clean;
+
 static int vhci_open(struct inode *inode, struct file *file)
 {
 	struct vhci_data *data;
+
+        /* GTA4LWIFI_VHCI_ONE_OPEN_STATIC_INT_CLEAN_DIAG:
+         * Refuse Bluebinder/systemd restart after the first VHCI open in this
+         * boot. This should fail safely with -EBUSY instead of creating hci1.
+         */
+        if (gta4lwifi_vhci_open_once_clean) {
+                pr_err("GTA4LWIFI_VHCI_ONE_OPEN_STATIC_INT_CLEAN_DIAG refusing second vhci_open in same boot\\n");
+                return -EBUSY;
+        }
+        gta4lwifi_vhci_open_once_clean = 1;
+
 
 	data = kzalloc(sizeof(struct vhci_data), GFP_KERNEL);
 	if (!data)
@@ -353,9 +374,25 @@ static int vhci_release(struct inode *inode, struct file *file)
 
 	hdev = data->hdev;
 
+	/* GTA4LWIFI_VHCI_RELEASE_SKIP_UNREGISTER_LEAK_DIAG:
+	 * On gta4lwifi, closing /dev/vhci after Bluebinder init hangs in:
+	 *
+	 *   vhci_release()
+	 *   hci_unregister_dev()
+	 *   cancel_work_sync(&hdev->power_on)
+	 *   __flush_work()
+	 *
+	 * That leaves Bluebinder as a zombie with a D-state pool thread and
+	 * stale hci0. Previous tests proved stop is safe only when we skip
+	 * unregister/free and intentionally leak the first virtual controller.
+	 * The one-open-per-boot guard prevents a second vhci opener/hci1.
+	 */
 	if (hdev) {
-		hci_unregister_dev(hdev);
-		hci_free_dev(hdev);
+		pr_err("GTA4LWIFI_VHCI_RELEASE_SKIP_UNREGISTER_LEAK_DIAG leak hdev id=%d name=%s bus=%u type=%u flags=0x%lx dev_flags=0x%lx\n",
+		       hdev->id, hdev->name, hdev->bus, hdev->dev_type,
+		       hdev->flags, hdev->dev_flags);
+		file->private_data = NULL;
+		return 0;
 	}
 
 	skb_queue_purge(&data->readq);
@@ -383,6 +420,12 @@ static struct miscdevice vhci_miscdev = {
 module_misc_device(vhci_miscdev);
 
 module_param(amp, bool, 0644);
+
+/* GTA4LWIFI_VHCI_ONE_OPEN_STATIC_INT_CLEAN_DIAG:
+ * Diagnostic restart safety valve. #25 proves first Bluebinder start works
+ * and first stop survives only by leaking hci0/rfkill state. A second VHCI
+ * opener creates hci1 and reboots this tablet. Permit one VHCI open per boot.
+ */
 MODULE_PARM_DESC(amp, "Create AMP controller device");
 
 MODULE_AUTHOR("Marcel Holtmann <marcel@holtmann.org>");

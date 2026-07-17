@@ -104,12 +104,35 @@ static void hci_req_sync_complete(struct hci_dev *hdev, u8 result, u16 opcode,
 {
 	BT_DBG("%s result 0x%2.2x", hdev->name, result);
 
+	if (hdev->bus == HCI_VIRTUAL && hci_dev_test_flag(hdev, HCI_SETUP))
+		pr_err("GTA4LWIFI_TAIL_DIAG sync_complete_enter id=%d name=%s opcode=0x%04x result=0x%02x req_status=%u req_result=%u flags=0x%lx dev_flags=0x%lx init=%d up=%d running=%d cmd_cnt=%d cmd_q=%u sent_cmd=%p skb=%p\n",
+		       hdev->id, hdev->name, opcode, result,
+		       hdev->req_status, hdev->req_result,
+		       hdev->flags, hdev->dev_flags,
+		       test_bit(HCI_INIT, &hdev->flags),
+		       test_bit(HCI_UP, &hdev->flags),
+		       test_bit(HCI_RUNNING, &hdev->flags),
+		       atomic_read(&hdev->cmd_cnt),
+		       skb_queue_len(&hdev->cmd_q),
+		       hdev->sent_cmd, skb);
+
 	if (hdev->req_status == HCI_REQ_PEND) {
 		hdev->req_result = result;
 		hdev->req_status = HCI_REQ_DONE;
 		if (skb)
 			hdev->req_skb = skb_get(skb);
+
+		if (hdev->bus == HCI_VIRTUAL && hci_dev_test_flag(hdev, HCI_SETUP))
+			pr_err("GTA4LWIFI_TAIL_DIAG sync_complete_before_wake id=%d name=%s opcode=0x%04x req_status=%u req_result=%u req_skb=%p\n",
+			       hdev->id, hdev->name, opcode,
+			       hdev->req_status, hdev->req_result, hdev->req_skb);
+
 		wake_up_interruptible(&hdev->req_wait_q);
+
+		if (hdev->bus == HCI_VIRTUAL && hci_dev_test_flag(hdev, HCI_SETUP))
+			pr_err("GTA4LWIFI_TAIL_DIAG sync_complete_after_wake id=%d name=%s opcode=0x%04x req_status=%u req_result=%u req_skb=%p\n",
+			       hdev->id, hdev->name, opcode,
+			       hdev->req_status, hdev->req_result, hdev->req_skb);
 	}
 }
 

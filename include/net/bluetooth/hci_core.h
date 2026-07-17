@@ -1244,32 +1244,124 @@ struct hci_cb {
 static inline void hci_connect_cfm(struct hci_conn *conn, __u8 status)
 {
 	struct hci_cb *cb;
+	bool gta4_vhci_acl_diag = false;
+
+	if (conn && conn->hdev && conn->hdev->bus == HCI_VIRTUAL &&
+	    conn->type == ACL_LINK && status == 0x00)
+		gta4_vhci_acl_diag = true;
+
+	if (gta4_vhci_acl_diag)
+		bt_dev_warn(conn->hdev,
+			    "GTA4LWIFI_HCI_CONNECT_CFM_ENTER_VHCI_DIAG conn=%p dst=%pMR type=%u status=0x%2.2x state=%u flags=0x%lx out=%u cb_priv=%p\n",
+			    conn, &conn->dst, conn->type, status, conn->state,
+			    conn->flags, conn->out, conn->connect_cfm_cb);
 
 	mutex_lock(&hci_cb_list_lock);
 	list_for_each_entry(cb, &hci_cb_list, list) {
-		if (cb->connect_cfm)
+		if (cb->connect_cfm) {
+			if (gta4_vhci_acl_diag)
+				bt_dev_warn(conn->hdev,
+					    "GTA4LWIFI_HCI_CONNECT_CFM_BEFORE_GLOBAL_CB_VHCI_DIAG cb=%p name=%s fn=%ps conn=%p state=%u flags=0x%lx\n",
+					    cb, cb->name ? cb->name : "NULL",
+					    cb->connect_cfm, conn, conn->state,
+					    conn->flags);
+
 			cb->connect_cfm(conn, status);
+
+			if (gta4_vhci_acl_diag)
+				bt_dev_warn(conn->hdev,
+					    "GTA4LWIFI_HCI_CONNECT_CFM_AFTER_GLOBAL_CB_VHCI_DIAG cb=%p name=%s fn=%ps conn=%p state=%u flags=0x%lx\n",
+					    cb, cb->name ? cb->name : "NULL",
+					    cb->connect_cfm, conn, conn->state,
+					    conn->flags);
+		}
 	}
 	mutex_unlock(&hci_cb_list_lock);
 
-	if (conn->connect_cfm_cb)
+	if (conn->connect_cfm_cb) {
+		if (gta4_vhci_acl_diag)
+			bt_dev_warn(conn->hdev,
+				    "GTA4LWIFI_HCI_CONNECT_CFM_BEFORE_CONN_CB_VHCI_DIAG cb_priv=%p fn=%ps conn=%p state=%u flags=0x%lx\n",
+				    conn->connect_cfm_cb, conn->connect_cfm_cb,
+				    conn, conn->state, conn->flags);
+
 		conn->connect_cfm_cb(conn, status);
+
+		if (gta4_vhci_acl_diag)
+			bt_dev_warn(conn->hdev,
+				    "GTA4LWIFI_HCI_CONNECT_CFM_AFTER_CONN_CB_VHCI_DIAG cb_priv=%p fn=%ps conn=%p state=%u flags=0x%lx\n",
+				    conn->connect_cfm_cb, conn->connect_cfm_cb,
+				    conn, conn->state, conn->flags);
+	}
+
+	if (gta4_vhci_acl_diag)
+		bt_dev_warn(conn->hdev,
+			    "GTA4LWIFI_HCI_CONNECT_CFM_DONE_VHCI_DIAG conn=%p state=%u flags=0x%lx\n",
+			    conn, conn->state, conn->flags);
 }
 
 static inline void hci_disconn_cfm(struct hci_conn *conn, __u8 reason)
 {
 	struct hci_cb *cb;
 
+	if (conn && conn->hdev && conn->hdev->bus == HCI_VIRTUAL &&
+	    conn->type == ACL_LINK)
+		bt_dev_warn(conn->hdev,
+			    "GTA4LWIFI_HCI_DISCONN_CFM_ENTER_VHCI_DIAG conn=%p dst=%pMR type=%u reason=0x%2.2x state=%u flags=0x%lx cb_priv=%p\n",
+			    conn, &conn->dst, conn->type, reason,
+			    conn->state, conn->flags, conn->disconn_cfm_cb);
+
 	mutex_lock(&hci_cb_list_lock);
+
 	list_for_each_entry(cb, &hci_cb_list, list) {
-		if (cb->disconn_cfm)
+		if (cb->disconn_cfm) {
+			if (conn && conn->hdev && conn->hdev->bus == HCI_VIRTUAL &&
+			    conn->type == ACL_LINK)
+				bt_dev_warn(conn->hdev,
+					    "GTA4LWIFI_HCI_DISCONN_CFM_BEFORE_GLOBAL_CB_VHCI_DIAG cb=%p name=%s fn=%ps conn=%p state=%u flags=0x%lx reason=0x%2.2x\n",
+					    cb, cb->name ? cb->name : "(null)",
+					    cb->disconn_cfm, conn, conn->state,
+					    conn->flags, reason);
+
 			cb->disconn_cfm(conn, reason);
+
+			if (conn && conn->hdev && conn->hdev->bus == HCI_VIRTUAL &&
+			    conn->type == ACL_LINK)
+				bt_dev_warn(conn->hdev,
+					    "GTA4LWIFI_HCI_DISCONN_CFM_AFTER_GLOBAL_CB_VHCI_DIAG cb=%p name=%s fn=%ps conn=%p state=%u flags=0x%lx reason=0x%2.2x\n",
+					    cb, cb->name ? cb->name : "(null)",
+					    cb->disconn_cfm, conn, conn->state,
+					    conn->flags, reason);
+		}
 	}
+
 	mutex_unlock(&hci_cb_list_lock);
 
-	if (conn->disconn_cfm_cb)
+	if (conn->disconn_cfm_cb) {
+		if (conn && conn->hdev && conn->hdev->bus == HCI_VIRTUAL &&
+		    conn->type == ACL_LINK)
+			bt_dev_warn(conn->hdev,
+				    "GTA4LWIFI_HCI_DISCONN_CFM_BEFORE_PRIVATE_CB_VHCI_DIAG fn=%ps conn=%p state=%u flags=0x%lx reason=0x%2.2x\n",
+				    conn->disconn_cfm_cb, conn, conn->state,
+				    conn->flags, reason);
+
 		conn->disconn_cfm_cb(conn, reason);
+
+		if (conn && conn->hdev && conn->hdev->bus == HCI_VIRTUAL &&
+		    conn->type == ACL_LINK)
+			bt_dev_warn(conn->hdev,
+				    "GTA4LWIFI_HCI_DISCONN_CFM_AFTER_PRIVATE_CB_VHCI_DIAG fn=%ps conn=%p state=%u flags=0x%lx reason=0x%2.2x\n",
+				    conn->disconn_cfm_cb, conn, conn->state,
+				    conn->flags, reason);
+	}
+
+	if (conn && conn->hdev && conn->hdev->bus == HCI_VIRTUAL &&
+	    conn->type == ACL_LINK)
+		bt_dev_warn(conn->hdev,
+			    "GTA4LWIFI_HCI_DISCONN_CFM_DONE_VHCI_DIAG conn=%p state=%u flags=0x%lx reason=0x%2.2x\n",
+			    conn, conn->state, conn->flags, reason);
 }
+
 
 static inline void hci_auth_cfm(struct hci_conn *conn, __u8 status)
 {

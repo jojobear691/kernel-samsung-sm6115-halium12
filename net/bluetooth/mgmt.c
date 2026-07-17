@@ -99,7 +99,7 @@ static const u16 mgmt_commands[] = {
 	MGMT_OP_START_SERVICE_DISCOVERY,
 	MGMT_OP_READ_LOCAL_OOB_EXT_DATA,
 	MGMT_OP_READ_EXT_INDEX_LIST,
-	MGMT_OP_READ_ADV_FEATURES,
+	/* GTA4LWIFI_HIDE_MGMT_READ_ADV_FEATURES_COMMAND_LIST_REAL_DIAG: MGMT_OP_READ_ADV_FEATURES, */
 	MGMT_OP_ADD_ADVERTISING,
 	MGMT_OP_REMOVE_ADVERTISING,
 	MGMT_OP_GET_ADV_SIZE_INFO,
@@ -383,8 +383,16 @@ static int read_index_list(struct sock *sk, struct hci_dev *hdev, void *data,
 	list_for_each_entry(d, &hci_dev_list, list) {
 		if (hci_dev_test_flag(d, HCI_SETUP) ||
 		    hci_dev_test_flag(d, HCI_CONFIG) ||
-		    hci_dev_test_flag(d, HCI_USER_CHANNEL))
+		    hci_dev_test_flag(d, HCI_USER_CHANNEL)) {
+			pr_err("GTA4LWIFI_MGMT_SETUP_DIAG read_index_skip id=%d name=%s bus=%u type=%u flags=0x%lx dev_flags=0x%lx quirks=0x%lx setup=%d config=%d user_channel=%d unconfigured=%d rawquirk=%d\\n",
+			       d->id, d->name, d->bus, d->dev_type, d->flags, d->dev_flags, d->quirks,
+			       hci_dev_test_flag(d, HCI_SETUP),
+			       hci_dev_test_flag(d, HCI_CONFIG),
+			       hci_dev_test_flag(d, HCI_USER_CHANNEL),
+			       hci_dev_test_flag(d, HCI_UNCONFIGURED),
+			       test_bit(HCI_QUIRK_RAW_DEVICE, &d->quirks));
 			continue;
+		}
 
 		/* Devices marked as raw-only are neither configured
 		 * nor unconfigured controllers.
@@ -780,6 +788,24 @@ static u32 get_supported_settings(struct hci_dev *hdev)
 		settings |= MGMT_SETTING_CONFIGURATION;
 
 	settings |= MGMT_SETTING_PHY_CONFIGURATION;
+
+	if (hdev->bus == HCI_VIRTUAL && (settings & MGMT_SETTING_PRIVACY)) {
+		pr_err("GTA4LWIFI_MASK_MGMT_PRIVACY_SETTING_VHCI_DIAG hdev=%s bus=%u supported_before=0x%08x\n",
+		       hdev->name, hdev->bus, settings);
+		settings &= ~MGMT_SETTING_PRIVACY;
+	}
+
+	if (hdev->bus == HCI_VIRTUAL && (settings & MGMT_SETTING_SECURE_CONN)) {
+		pr_err("GTA4LWIFI_MASK_MGMT_SECURE_CONN_SETTING_VHCI_DIAG hdev=%s bus=%u supported_before=0x%08x\n",
+		       hdev->name, hdev->bus, settings);
+		settings &= ~MGMT_SETTING_SECURE_CONN;
+	}
+
+	if (hdev->bus == HCI_VIRTUAL && (settings & MGMT_SETTING_ADVERTISING)) {
+		pr_err("GTA4LWIFI_MASK_MGMT_ADVERTISING_SETTING_VHCI_DIAG hdev=%s bus=%u supported_before=0x%08x\n",
+		       hdev->name, hdev->bus, settings);
+		settings &= ~MGMT_SETTING_ADVERTISING;
+	}
 
 	return settings;
 }
@@ -1214,6 +1240,28 @@ failed:
 static int new_settings(struct hci_dev *hdev, struct sock *skip)
 {
 	__le32 ev = cpu_to_le32(get_current_settings(hdev));
+	u32 settings = le32_to_cpu(ev);
+
+	pr_err("GTA4LWIFI_MGMT_NEW_SETTINGS_ENTER_V4 id=%d name=%s bus=%u settings=0x%08x powered=%d flags=0x%lx dev_flags=0x%lx up=%d init=%d running=%d setup=%d\n",
+	       hdev->id, hdev->name, hdev->bus, settings,
+	       !!(settings & MGMT_SETTING_POWERED),
+	       hdev->flags, hdev->dev_flags,
+	       test_bit(HCI_UP, &hdev->flags),
+	       test_bit(HCI_INIT, &hdev->flags),
+	       test_bit(HCI_RUNNING, &hdev->flags),
+	       hci_dev_test_flag(hdev, HCI_SETUP));
+
+	if (hdev->bus == HCI_VIRTUAL &&
+	    (settings & MGMT_SETTING_POWERED)) {
+		pr_err("GTA4LWIFI_SKIP_POWERED_NEW_SETTINGS_VHCI_V4_DIAG id=%d name=%s bus=%u settings=0x%08x flags=0x%lx dev_flags=0x%lx up=%d init=%d running=%d setup=%d\n",
+		       hdev->id, hdev->name, hdev->bus, settings,
+		       hdev->flags, hdev->dev_flags,
+		       test_bit(HCI_UP, &hdev->flags),
+		       test_bit(HCI_INIT, &hdev->flags),
+		       test_bit(HCI_RUNNING, &hdev->flags),
+		       hci_dev_test_flag(hdev, HCI_SETUP));
+		return 0;
+	}
 
 	return mgmt_limited_event(MGMT_EV_NEW_SETTINGS, hdev, &ev,
 				  sizeof(ev), HCI_MGMT_SETTING_EVENTS, skip);
@@ -1745,6 +1793,28 @@ static int set_ssp(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 		goto failed;
 	}
 
+	/*
+	 * gta4lwifi diagnostic fuse:
+	 * BlueZ SET_SSP enable on the VHCI-backed controller reaches
+	 * HCI_OP_WRITE_SSP_MODE and reboots before command completion.
+	 * Reflect the requested SSP state to MGMT without transmitting
+	 * the controller command or emitting a new-settings event.
+	 */
+	if (hdev->bus == HCI_VIRTUAL && cp->val == 0x01) {
+		hci_dev_set_flag(hdev, HCI_SSP_ENABLED);
+
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_SKIP_MGMT_SET_SSP_ENABLE_HCI_CMD_VHCI_DIAG "
+			    "val=0x%02x bus=%u powered=%u ssp_enabled=%u "
+			    "skipping_hci_opcode=0x%04x_without_new_settings\n",
+			    cp->val, hdev->bus, hdev_is_powered(hdev),
+			    hci_dev_test_flag(hdev, HCI_SSP_ENABLED),
+			    HCI_OP_WRITE_SSP_MODE);
+
+		err = send_settings_rsp(sk, MGMT_OP_SET_SSP, hdev);
+		goto failed;
+	}
+
 	cmd = mgmt_pending_add(sk, MGMT_OP_SET_SSP, hdev, data, len);
 	if (!cmd) {
 		err = -ENOMEM;
@@ -1893,7 +1963,7 @@ static int set_le(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_SET_LE,
 				       MGMT_STATUS_INVALID_PARAMS);
 
-	/* Bluetooth single mode LE only controllers or dual-mode
+        /* Bluetooth single mode LE only controllers or dual-mode
 	 * controllers configured as LE only devices, do not allow
 	 * switching LE off. These have either LE enabled explicitly
 	 * or BR/EDR has been previously switched off.
@@ -2042,11 +2112,30 @@ unlock:
 	hci_dev_unlock(hdev);
 }
 
+/*
+ * GTA4LWIFI diagnostic: count accepted VHCI ADD_UUID requests in
+ * boot order. Request five can be acknowledged without changing
+ * the UUID list or scheduling class/EIR updates.
+ */
+static unsigned int gta4lwifi_add_uuid_vhci_count;
+atomic_t gta4lwifi_post_fifth_add_uuid_hold_next_mgmt =
+	ATOMIC_INIT(0);
+
 static void add_uuid_complete(struct hci_dev *hdev, u8 status, u16 opcode)
 {
 	BT_DBG("status 0x%02x", status);
 
+	if (hdev->bus == HCI_VIRTUAL)
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_ADD_UUID_COMPLETE_ENTER_TRACE_VHCI_DIAG status=0x%02x hci_opcode=0x%04x entering_mgmt_class_complete\n",
+			    status, opcode);
+
 	mgmt_class_complete(hdev, MGMT_OP_ADD_UUID, status);
+
+	if (hdev->bus == HCI_VIRTUAL)
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_ADD_UUID_COMPLETE_AFTER_MGMT_TRACE_VHCI_DIAG status=0x%02x hci_opcode=0x%04x mgmt_class_complete_returned\n",
+			    status, opcode);
 }
 
 static int add_uuid(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
@@ -2065,6 +2154,32 @@ static int add_uuid(struct sock *sk, struct hci_dev *hdev, void *data, u16 len)
 		err = mgmt_cmd_status(sk, hdev->id, MGMT_OP_ADD_UUID,
 				      MGMT_STATUS_BUSY);
 		goto failed;
+	}
+
+	if (hdev->bus == HCI_VIRTUAL) {
+		gta4lwifi_add_uuid_vhci_count++;
+
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_ADD_UUID_REQUEST_COUNT_VHCI_DIAG count=%u svc_hint=0x%02x\n",
+			    gta4lwifi_add_uuid_vhci_count,
+			    cp->svc_hint);
+
+		if (gta4lwifi_add_uuid_vhci_count == 5) {
+			atomic_set(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt, 1);
+
+			bt_dev_warn(hdev,
+				    "GTA4LWIFI_ADD_UUID_FIFTH_MATCHED_FAILED_ARM_NEXT_MGMT_HOLD_VHCI_DIAG count=%u index=0x%04x opcode=0x%04x status=0x%02x hold_state=%d completing_real_add_uuid_request\n",
+				    gta4lwifi_add_uuid_vhci_count,
+				    hdev->id,
+				    MGMT_OP_ADD_UUID,
+				    MGMT_STATUS_FAILED,
+				    atomic_read(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt));
+
+			err = mgmt_cmd_status(sk, hdev->id,
+					      MGMT_OP_ADD_UUID,
+					      MGMT_STATUS_FAILED);
+			goto failed;
+		}
 	}
 
 	uuid = kmalloc(sizeof(*uuid), GFP_KERNEL);
@@ -4180,28 +4295,82 @@ static int unblock_device(struct sock *sk, struct hci_dev *hdev, void *data,
 	BT_DBG("%s", hdev->name);
 
 	if (!bdaddr_type_is_valid(cp->addr.type))
-		return mgmt_cmd_complete(sk, hdev->id, MGMT_OP_UNBLOCK_DEVICE,
+		return mgmt_cmd_complete(sk, hdev->id,
+					 MGMT_OP_UNBLOCK_DEVICE,
 					 MGMT_STATUS_INVALID_PARAMS,
 					 &cp->addr, sizeof(cp->addr));
 
+	if (hdev->bus == HCI_VIRTUAL)
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_UNBLOCK_REAL_BEFORE_LOCK_VHCI_DIAG index=0x%04x opcode=0x%04x addr=%pMR type=%u entering_hci_dev_lock\n",
+			    hdev->id, MGMT_OP_UNBLOCK_DEVICE,
+			    &cp->addr.bdaddr, cp->addr.type);
+
 	hci_dev_lock(hdev);
+
+	if (hdev->bus == HCI_VIRTUAL)
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_UNBLOCK_REAL_AFTER_LOCK_BEFORE_DELETE_VHCI_DIAG index=0x%04x opcode=0x%04x addr=%pMR type=%u hci_dev_lock_acquired\n",
+			    hdev->id, MGMT_OP_UNBLOCK_DEVICE,
+			    &cp->addr.bdaddr, cp->addr.type);
 
 	err = hci_bdaddr_list_del(&hdev->blacklist, &cp->addr.bdaddr,
 				  cp->addr.type);
+
+	if (hdev->bus == HCI_VIRTUAL)
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_UNBLOCK_REAL_AFTER_DELETE_VHCI_DIAG index=0x%04x opcode=0x%04x addr=%pMR type=%u delete_err=%d\n",
+			    hdev->id, MGMT_OP_UNBLOCK_DEVICE,
+			    &cp->addr.bdaddr, cp->addr.type, err);
+
 	if (err < 0) {
 		status = MGMT_STATUS_INVALID_PARAMS;
-		goto done;
+
+		if (hdev->bus == HCI_VIRTUAL)
+			bt_dev_warn(hdev,
+				    "GTA4LWIFI_UNBLOCK_REAL_DELETE_FAILED_SKIP_EVENT_VHCI_DIAG index=0x%04x opcode=0x%04x delete_err=%d reply_status=0x%02x\n",
+				    hdev->id, MGMT_OP_UNBLOCK_DEVICE,
+				    err, status);
+	} else {
+
+		status = MGMT_STATUS_SUCCESS;
 	}
 
-	mgmt_event(MGMT_EV_DEVICE_UNBLOCKED, hdev, &cp->addr, sizeof(cp->addr),
-		   sk);
-	status = MGMT_STATUS_SUCCESS;
-
-done:
-	err = mgmt_cmd_complete(sk, hdev->id, MGMT_OP_UNBLOCK_DEVICE, status,
-				&cp->addr, sizeof(cp->addr));
+	if (hdev->bus == HCI_VIRTUAL)
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_UNBLOCK_REAL_BEFORE_UNLOCK_VHCI_DIAG index=0x%04x opcode=0x%04x delete_err=%d reply_status=0x%02x entering_hci_dev_unlock\n",
+			    hdev->id, MGMT_OP_UNBLOCK_DEVICE,
+			    err, status);
 
 	hci_dev_unlock(hdev);
+
+	if (hdev->bus == HCI_VIRTUAL)
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_UNBLOCK_REAL_AFTER_UNLOCK_BEFORE_COMPLETE_VHCI_DIAG index=0x%04x opcode=0x%04x delete_err=%d reply_status=0x%02x hci_dev_lock_released\n",
+			    hdev->id, MGMT_OP_UNBLOCK_DEVICE,
+			    err, status);
+
+	if (!err) {
+		if (hdev->bus == HCI_VIRTUAL) {
+			bt_dev_warn(hdev,
+				    "GTA4LWIFI_UNBLOCK_REAL_SKIP_DEVICE_UNBLOCKED_EVENT_VHCI_FIX index=0x%04x opcode=0x%04x addr=%pMR type=%u event=0x%04x hdev_lock_held=0 continuing_to_completion\n",
+				    hdev->id, MGMT_OP_UNBLOCK_DEVICE,
+				    &cp->addr.bdaddr, cp->addr.type,
+				    MGMT_EV_DEVICE_UNBLOCKED);
+		} else {
+			mgmt_event(MGMT_EV_DEVICE_UNBLOCKED, hdev, &cp->addr,
+				   sizeof(cp->addr), sk);
+		}
+	}
+
+	err = mgmt_cmd_complete(sk, hdev->id, MGMT_OP_UNBLOCK_DEVICE,
+				status, &cp->addr, sizeof(cp->addr));
+
+	if (hdev->bus == HCI_VIRTUAL)
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_UNBLOCK_REAL_AFTER_COMPLETE_VHCI_DIAG index=0x%04x opcode=0x%04x reply_status=0x%02x complete_rc=%d\n",
+			    hdev->id, MGMT_OP_UNBLOCK_DEVICE,
+			    status, err);
 
 	return err;
 }
@@ -5603,7 +5772,27 @@ static void device_added(struct sock *sk, struct hci_dev *hdev,
 	ev.addr.type = type;
 	ev.action = action;
 
+	if (hdev->bus == HCI_VIRTUAL)
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_ADD_DEVICE_EVENT_ENTER_VHCI_DIAG "
+			    "index=0x%04x addr=%pMR type=%u action=%u "
+			    "event=0x%04x mutex_is_locked=%u "
+			    "entering_mgmt_event\n",
+			    hdev->id, bdaddr, type, action,
+			    MGMT_EV_DEVICE_ADDED,
+			    mutex_is_locked(&hdev->lock));
+
 	mgmt_event(MGMT_EV_DEVICE_ADDED, hdev, &ev, sizeof(ev), sk);
+
+	if (hdev->bus == HCI_VIRTUAL)
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_ADD_DEVICE_EVENT_RETURN_VHCI_DIAG "
+			    "index=0x%04x addr=%pMR type=%u action=%u "
+			    "event=0x%04x mutex_is_locked=%u "
+			    "mgmt_event_returned\n",
+			    hdev->id, bdaddr, type, action,
+			    MGMT_EV_DEVICE_ADDED,
+			    mutex_is_locked(&hdev->lock));
 }
 
 static int add_device(struct sock *sk, struct hci_dev *hdev,
@@ -5626,9 +5815,37 @@ static int add_device(struct sock *sk, struct hci_dev *hdev,
 					 MGMT_STATUS_INVALID_PARAMS,
 					 &cp->addr, sizeof(cp->addr));
 
+	if (hdev->bus == HCI_VIRTUAL)
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_ADD_DEVICE_EVENT_SPLIT_BEFORE_LOCK_VHCI_DIAG "
+			    "index=0x%04x opcode=0x%04x addr=%pMR "
+			    "type=%u action=%u mutex_is_locked_before=%u "
+			    "entering_hci_dev_lock\n",
+			    hdev->id, MGMT_OP_ADD_DEVICE,
+			    &cp->addr.bdaddr, cp->addr.type,
+			    cp->action,
+			    mutex_is_locked(&hdev->lock));
+
 	hci_dev_lock(hdev);
 
+	if (hdev->bus == HCI_VIRTUAL)
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_ADD_DEVICE_EVENT_SPLIT_AFTER_LOCK_VHCI_DIAG "
+			    "index=0x%04x opcode=0x%04x addr=%pMR "
+			    "type=%u action=%u mutex_is_locked_after=%u "
+			    "hci_dev_lock_acquired\n",
+			    hdev->id, MGMT_OP_ADD_DEVICE,
+			    &cp->addr.bdaddr, cp->addr.type,
+			    cp->action,
+			    mutex_is_locked(&hdev->lock));
+
 	if (cp->addr.type == BDADDR_BREDR) {
+		if (hdev->bus == HCI_VIRTUAL)
+			bt_dev_warn(hdev,
+				    "GTA4LWIFI_ADD_DEVICE_BREDR_BRANCH_VHCI_DIAG index=0x%04x addr=%pMR type=%u action=%u entered_bredr_branch\\n",
+				    hdev->id,
+				    &cp->addr.bdaddr,
+				    cp->addr.type, cp->action);
 		/* Only incoming connections action is supported for now */
 		if (cp->action != 0x01) {
 			err = mgmt_cmd_complete(sk, hdev->id,
@@ -5638,12 +5855,38 @@ static int add_device(struct sock *sk, struct hci_dev *hdev,
 			goto unlock;
 		}
 
+		if (hdev->bus == HCI_VIRTUAL)
+			bt_dev_warn(hdev,
+				    "GTA4LWIFI_ADD_DEVICE_BEFORE_WHITELIST_ADD_VHCI_DIAG index=0x%04x addr=%pMR type=%u action=%u hdev_lock_held=1 entering_whitelist_add\\n",
+				    hdev->id,
+				    &cp->addr.bdaddr,
+				    cp->addr.type, cp->action);
+
 		err = hci_bdaddr_list_add(&hdev->whitelist, &cp->addr.bdaddr,
 					  cp->addr.type);
+
+		if (hdev->bus == HCI_VIRTUAL)
+			bt_dev_warn(hdev,
+				    "GTA4LWIFI_ADD_DEVICE_AFTER_WHITELIST_ADD_VHCI_DIAG index=0x%04x addr=%pMR type=%u action=%u whitelist_add_err=%d hdev_lock_held=1\\n",
+				    hdev->id,
+				    &cp->addr.bdaddr,
+				    cp->addr.type, cp->action, err);
 		if (err)
 			goto unlock;
 
+		if (hdev->bus == HCI_VIRTUAL)
+			bt_dev_warn(hdev,
+				    "GTA4LWIFI_ADD_DEVICE_BEFORE_UPDATE_SCAN_VHCI_DIAG index=0x%04x addr=%pMR type=%u action=%u hdev_lock_held=1 entering_hci_req_update_scan\\n",
+				    hdev->id,
+				    &cp->addr.bdaddr,
+				    cp->addr.type, cp->action);
+
 		hci_req_update_scan(hdev);
+
+		if (hdev->bus == HCI_VIRTUAL)
+			bt_dev_warn(hdev,
+				    "GTA4LWIFI_ADD_DEVICE_AFTER_UPDATE_SCAN_VHCI_DIAG index=0x%04x hdev_lock_held=1 hci_req_update_scan_returned\\n",
+				    hdev->id);
 
 		goto added;
 	}
@@ -5683,14 +5926,87 @@ static int add_device(struct sock *sk, struct hci_dev *hdev,
 	hci_update_background_scan(hdev);
 
 added:
-	device_added(sk, hdev, &cp->addr.bdaddr, cp->addr.type, cp->action);
+	if (hdev->bus == HCI_VIRTUAL) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_ADD_DEVICE_EVENT_SPLIT_BEFORE_UNLOCK_VHCI_DIAG "
+			    "index=0x%04x opcode=0x%04x addr=%pMR "
+			    "type=%u action=%u mutex_is_locked=%u "
+			    "whitelist_and_scan_complete entering_hci_dev_unlock\n",
+			    hdev->id, MGMT_OP_ADD_DEVICE,
+			    &cp->addr.bdaddr, cp->addr.type,
+			    cp->action,
+			    mutex_is_locked(&hdev->lock));
+
+		hci_dev_unlock(hdev);
+
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_ADD_DEVICE_EVENT_SPLIT_AFTER_UNLOCK_VHCI_DIAG "
+			    "index=0x%04x opcode=0x%04x addr=%pMR "
+			    "type=%u action=%u mutex_is_locked=%u "
+			    "hci_dev_lock_released\n",
+			    hdev->id, MGMT_OP_ADD_DEVICE,
+			    &cp->addr.bdaddr, cp->addr.type,
+			    cp->action,
+			    mutex_is_locked(&hdev->lock));
+
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_ADD_DEVICE_SKIP_DEVICE_ADDED_EVENT_VHCI_FIX "
+			    "index=0x%04x opcode=0x%04x addr=%pMR "
+			    "type=%u action=%u event=0x%04x "
+			    "mutex_is_locked=%u "
+			    "skipping_device_added_event_only\n",
+			    hdev->id, MGMT_OP_ADD_DEVICE,
+			    &cp->addr.bdaddr, cp->addr.type,
+			    cp->action, MGMT_EV_DEVICE_ADDED,
+			    mutex_is_locked(&hdev->lock));
+
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_ADD_DEVICE_EVENT_SPLIT_BEFORE_COMPLETE_VHCI_DIAG "
+			    "index=0x%04x opcode=0x%04x status=0x%02x "
+			    "mutex_is_locked=%u "
+			    "entering_mgmt_cmd_complete_after_unlock\n",
+			    hdev->id, MGMT_OP_ADD_DEVICE,
+			    MGMT_STATUS_SUCCESS,
+			    mutex_is_locked(&hdev->lock));
+
+		err = mgmt_cmd_complete(
+			sk, hdev->id,
+			MGMT_OP_ADD_DEVICE,
+			MGMT_STATUS_SUCCESS,
+			&cp->addr,
+			sizeof(cp->addr));
+
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_ADD_DEVICE_EVENT_SPLIT_AFTER_COMPLETE_VHCI_DIAG "
+			    "index=0x%04x opcode=0x%04x complete_rc=%d "
+			    "mutex_is_locked=%u completion_returned_after_unlock\n",
+			    hdev->id, MGMT_OP_ADD_DEVICE, err,
+			    mutex_is_locked(&hdev->lock));
+
+		return err;
+	}
+
+	device_added(sk, hdev, &cp->addr.bdaddr,
+		     cp->addr.type, cp->action);
 
 	err = mgmt_cmd_complete(sk, hdev->id, MGMT_OP_ADD_DEVICE,
 				MGMT_STATUS_SUCCESS, &cp->addr,
 				sizeof(cp->addr));
 
 unlock:
+	if (hdev->bus == HCI_VIRTUAL)
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_ADD_DEVICE_BEFORE_UNLOCK_VHCI_DIAG index=0x%04x opcode=0x%04x handler_err=%d entering_hci_dev_unlock\\n",
+			    hdev->id,
+			    MGMT_OP_ADD_DEVICE, err);
+
 	hci_dev_unlock(hdev);
+
+	if (hdev->bus == HCI_VIRTUAL)
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_ADD_DEVICE_AFTER_UNLOCK_VHCI_DIAG index=0x%04x opcode=0x%04x handler_err=%d hci_dev_lock_released\\n",
+			    hdev->id,
+			    MGMT_OP_ADD_DEVICE, err);
 	return err;
 }
 
@@ -5826,13 +6142,43 @@ static int remove_device(struct sock *sk, struct hci_dev *hdev,
 	}
 
 complete:
+	if (hdev->bus == HCI_VIRTUAL) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_REMOVE_DEVICE_SUCCESS_DEFER_COMPLETE_BEFORE_UNLOCK_VHCI_DIAG index=0x%04x opcode=0x%04x addr=%pMR type=%u success_completion_deferred\n",
+			    hdev->id, MGMT_OP_REMOVE_DEVICE,
+			    &cp->addr.bdaddr, cp->addr.type);
+
+		hci_dev_unlock(hdev);
+
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_REMOVE_DEVICE_SUCCESS_DEFER_COMPLETE_AFTER_UNLOCK_VHCI_DIAG index=0x%04x opcode=0x%04x addr=%pMR type=%u hci_dev_lock_released\n",
+			    hdev->id, MGMT_OP_REMOVE_DEVICE,
+			    &cp->addr.bdaddr, cp->addr.type);
+
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_REMOVE_DEVICE_SUCCESS_DEFER_COMPLETE_BEFORE_QUEUE_VHCI_DIAG index=0x%04x opcode=0x%04x addr=%pMR type=%u entering_mgmt_cmd_complete_after_unlock\n",
+			    hdev->id, MGMT_OP_REMOVE_DEVICE,
+			    &cp->addr.bdaddr, cp->addr.type);
+
+		err = mgmt_cmd_complete(sk, hdev->id,
+					MGMT_OP_REMOVE_DEVICE,
+					MGMT_STATUS_SUCCESS,
+					&cp->addr, sizeof(cp->addr));
+
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_REMOVE_DEVICE_SUCCESS_DEFER_COMPLETE_AFTER_QUEUE_VHCI_DIAG index=0x%04x opcode=0x%04x addr=%pMR type=%u complete_rc=%d completion_returned_after_unlock\n",
+			    hdev->id, MGMT_OP_REMOVE_DEVICE,
+			    &cp->addr.bdaddr, cp->addr.type, err);
+
+		return err;
+	}
+
 	err = mgmt_cmd_complete(sk, hdev->id, MGMT_OP_REMOVE_DEVICE,
 				MGMT_STATUS_SUCCESS, &cp->addr,
 				sizeof(cp->addr));
 unlock:
 	hci_dev_unlock(hdev);
-	return err;
-}
+	return err;}
 
 static int load_conn_param(struct sock *sk, struct hci_dev *hdev, void *data,
 			   u16 len)
@@ -6355,52 +6701,56 @@ static u32 get_supported_adv_flags(struct hci_dev *hdev)
 }
 
 static int read_adv_features(struct sock *sk, struct hci_dev *hdev,
-			     void *data, u16 data_len)
+                             void *data, u16 data_len)
 {
-	struct mgmt_rp_read_adv_features *rp;
-	size_t rp_len;
-	int err;
-	struct adv_info *adv_instance;
-	u32 supported_flags;
-	u8 *instance;
+        struct mgmt_rp_read_adv_features *rp;
+        size_t rp_len;
+        int err;
+        struct adv_info *adv_instance;
+        u32 supported_flags;
+        u8 *instance;
+        if (hdev->bus == HCI_VIRTUAL)
+                pr_err("GTA4LWIFI_ALLOW_MGMT_READ_ADV_FEATURES_REPLY_VHCI_DIAG hdev=%s bus=%u\n",
+                       hdev->name, hdev->bus);
 
-	BT_DBG("%s", hdev->name);
 
-	if (!lmp_le_capable(hdev))
-		return mgmt_cmd_status(sk, hdev->id, MGMT_OP_READ_ADV_FEATURES,
-				       MGMT_STATUS_REJECTED);
+        BT_DBG("%s", hdev->name);
 
-	hci_dev_lock(hdev);
+        if (!lmp_le_capable(hdev))
+                return mgmt_cmd_status(sk, hdev->id, MGMT_OP_READ_ADV_FEATURES,
+                                       MGMT_STATUS_REJECTED);
 
-	rp_len = sizeof(*rp) + hdev->adv_instance_cnt;
-	rp = kmalloc(rp_len, GFP_ATOMIC);
-	if (!rp) {
-		hci_dev_unlock(hdev);
-		return -ENOMEM;
-	}
+        hci_dev_lock(hdev);
 
-	supported_flags = get_supported_adv_flags(hdev);
+        rp_len = sizeof(*rp) + hdev->adv_instance_cnt;
+        rp = kmalloc(rp_len, GFP_ATOMIC);
+        if (!rp) {
+                hci_dev_unlock(hdev);
+                return -ENOMEM;
+        }
 
-	rp->supported_flags = cpu_to_le32(supported_flags);
-	rp->max_adv_data_len = HCI_MAX_AD_LENGTH;
-	rp->max_scan_rsp_len = HCI_MAX_AD_LENGTH;
-	rp->max_instances = HCI_MAX_ADV_INSTANCES;
-	rp->num_instances = hdev->adv_instance_cnt;
+        supported_flags = get_supported_adv_flags(hdev);
 
-	instance = rp->instance;
-	list_for_each_entry(adv_instance, &hdev->adv_instances, list) {
-		*instance = adv_instance->instance;
-		instance++;
-	}
+        rp->supported_flags = cpu_to_le32(supported_flags);
+        rp->max_adv_data_len = HCI_MAX_AD_LENGTH;
+        rp->max_scan_rsp_len = HCI_MAX_AD_LENGTH;
+        rp->max_instances = HCI_MAX_ADV_INSTANCES;
+        rp->num_instances = hdev->adv_instance_cnt;
 
-	hci_dev_unlock(hdev);
+        instance = rp->instance;
+        list_for_each_entry(adv_instance, &hdev->adv_instances, list) {
+                *instance = adv_instance->instance;
+                instance++;
+        }
 
-	err = mgmt_cmd_complete(sk, hdev->id, MGMT_OP_READ_ADV_FEATURES,
-				MGMT_STATUS_SUCCESS, rp, rp_len);
+        hci_dev_unlock(hdev);
 
-	kfree(rp);
+        err = mgmt_cmd_complete(sk, hdev->id, MGMT_OP_READ_ADV_FEATURES,
+                                MGMT_STATUS_SUCCESS, rp, rp_len);
 
-	return err;
+        kfree(rp);
+
+        return err;
 }
 
 static u8 calculate_name_len(struct hci_dev *hdev)
@@ -6938,8 +7288,20 @@ void mgmt_index_added(struct hci_dev *hdev)
 {
 	struct mgmt_ev_ext_index ev;
 
-	if (test_bit(HCI_QUIRK_RAW_DEVICE, &hdev->quirks))
+	pr_err("GTA4LWIFI_MGMT_SETUP_DIAG mgmt_index_added_enter id=%d name=%s bus=%u type=%u flags=0x%lx dev_flags=0x%lx quirks=0x%lx setup=%d config=%d unconfigured=%d rawquirk=%d raw=%d\\n",
+	       hdev->id, hdev->name, hdev->bus, hdev->dev_type,
+	       hdev->flags, hdev->dev_flags, hdev->quirks,
+	       hci_dev_test_flag(hdev, HCI_SETUP),
+	       hci_dev_test_flag(hdev, HCI_CONFIG),
+	       hci_dev_test_flag(hdev, HCI_UNCONFIGURED),
+	       test_bit(HCI_QUIRK_RAW_DEVICE, &hdev->quirks),
+	       test_bit(HCI_RAW, &hdev->flags));
+
+	if (test_bit(HCI_QUIRK_RAW_DEVICE, &hdev->quirks)) {
+		pr_err("GTA4LWIFI_MGMT_SETUP_DIAG mgmt_index_added_skip_rawquirk id=%d name=%s\\n",
+		       hdev->id, hdev->name);
 		return;
+	}
 
 	switch (hdev->dev_type) {
 	case HCI_PRIMARY:
@@ -6976,7 +7338,12 @@ void mgmt_index_removed(struct hci_dev *hdev)
 
 	switch (hdev->dev_type) {
 	case HCI_PRIMARY:
-		mgmt_pending_foreach(0, hdev, cmd_complete_rsp, &status);
+		if (hdev->bus == HCI_VIRTUAL) {
+			pr_err("GTA4LWIFI_MGMT_INDEX_REMOVED_SKIP_PENDING_FOREACH_DIAG skip mgmt_pending_foreach id=%d name=%s flags=0x%lx dev_flags=0x%lx\n",
+			       hdev->id, hdev->name, hdev->flags, hdev->dev_flags);
+		} else {
+			mgmt_pending_foreach(0, hdev, cmd_complete_rsp, &status);
+		}
 
 		if (hci_dev_test_flag(hdev, HCI_UNCONFIGURED)) {
 			mgmt_index_event(MGMT_EV_UNCONF_INDEX_REMOVED, hdev,
@@ -7116,7 +7483,14 @@ void mgmt_new_link_key(struct hci_dev *hdev, struct link_key *key,
 	memcpy(ev.key.val, key->val, HCI_LINK_KEY_SIZE);
 	ev.key.pin_len = key->pin_len;
 
-	mgmt_event(MGMT_EV_NEW_LINK_KEY, hdev, &ev, sizeof(ev), NULL);
+	if (hdev->bus == HCI_VIRTUAL) {
+                pr_err("GTA4LWIFI_DROP_MGMT_NEW_LINK_KEY_EVENT_TAIL_VHCI_DIAG hdev=%s addr=%pMR type=0x%02x pin_len=%u persistent=%d bus=%u key_hex=%*phN\n",
+                       hdev->name, &key->bdaddr, key->type, key->pin_len,
+                       persistent, hdev->bus, HCI_LINK_KEY_SIZE, key->val);
+                return;
+        }
+
+        mgmt_event(MGMT_EV_NEW_LINK_KEY, hdev, &ev, sizeof(ev), NULL);
 }
 
 static u8 mgmt_ltk_type(struct smp_ltk *ltk)
@@ -7281,8 +7655,17 @@ void mgmt_device_connected(struct hci_dev *hdev, struct hci_conn *conn,
 
 	ev->eir_len = cpu_to_le16(eir_len);
 
+
+
+	if (hdev->bus == HCI_VIRTUAL && conn && conn->type == ACL_LINK) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_TAIL_DROP_MGMT_DEVICE_CONNECTED_EVENT_VHCI_DIAG addr=%pMR type=%u dst_type=%u conn_flags=0x%lx dropping_before_mgmt_event\n",
+			    &conn->dst, conn->type, conn->dst_type, conn->flags);
+		return;
+	}
+
 	mgmt_event(MGMT_EV_DEVICE_CONNECTED, hdev, buf,
-		    sizeof(*ev) + eir_len, NULL);
+	           sizeof(*ev) + eir_len, NULL);
 }
 
 static void disconnect_rsp(struct mgmt_pending_cmd *cmd, void *data)
@@ -7328,6 +7711,8 @@ void mgmt_device_disconnected(struct hci_dev *hdev, bdaddr_t *bdaddr,
 			      u8 link_type, u8 addr_type, u8 reason,
 			      bool mgmt_connected)
 {
+
+
 	struct mgmt_ev_device_disconnected ev;
 	struct sock *sk = NULL;
 
@@ -7350,6 +7735,18 @@ void mgmt_device_disconnected(struct hci_dev *hdev, bdaddr_t *bdaddr,
 	bacpy(&ev.addr.bdaddr, bdaddr);
 	ev.addr.type = link_to_bdaddr(link_type, addr_type);
 	ev.reason = reason;
+
+        if (hdev->bus == HCI_VIRTUAL)
+                pr_err("GTA4LWIFI_ALLOW_MGMT_DEVICE_DISCONNECTED_EVENT_VHCI_DIAG hdev=%s bdaddr=%pMR link_type=%u addr_type=%u reason=0x%02x bus=%u\n",
+                       hdev->name, bdaddr, link_type, addr_type, reason, hdev->bus);
+
+
+	if (hdev->bus == HCI_VIRTUAL) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_TAIL_DROP_MGMT_DEVICE_DISCONNECTED_EVENT_VHCI_DIAG addr=%pMR type=%u addr_type=%u reason=%u mgmt_connected=%u dropping_before_mgmt_event\n",
+			    bdaddr, link_type, addr_type, reason, mgmt_connected);
+		return;
+	}
 
 	mgmt_event(MGMT_EV_DEVICE_DISCONNECTED, hdev, &ev, sizeof(ev), sk);
 
@@ -7389,8 +7786,16 @@ void mgmt_disconnect_failed(struct hci_dev *hdev, bdaddr_t *bdaddr,
 void mgmt_connect_failed(struct hci_dev *hdev, bdaddr_t *bdaddr, u8 link_type,
 			 u8 addr_type, u8 status)
 {
+
 	struct mgmt_ev_connect_failed ev;
 
+
+	if (hdev->bus == HCI_VIRTUAL) {
+		bt_dev_warn(hdev,
+			    "GTA4LWIFI_DROP_MGMT_CONNECT_FAILED_VHCI_DIAG bus=%u dropping_mgmt_connect_failed_before_event_fanout\\n",
+			    hdev->bus);
+		return;
+	}
 	/* The connection is still in hci_conn_hash so test for 1
 	 * instead of 0 to know if this is the last one.
 	 */
@@ -7414,7 +7819,7 @@ void mgmt_pin_code_request(struct hci_dev *hdev, bdaddr_t *bdaddr, u8 secure)
 	ev.addr.type = BDADDR_BREDR;
 	ev.secure = secure;
 
-	mgmt_event(MGMT_EV_PIN_CODE_REQUEST, hdev, &ev, sizeof(ev), NULL);
+mgmt_event(MGMT_EV_PIN_CODE_REQUEST, hdev, &ev, sizeof(ev), NULL);
 }
 
 void mgmt_pin_code_reply_complete(struct hci_dev *hdev, bdaddr_t *bdaddr,
@@ -7548,6 +7953,17 @@ void mgmt_auth_failed(struct hci_conn *conn, u8 hci_status)
 
 	cmd = find_pairing(conn);
 
+	if (conn->hdev->bus == HCI_VIRTUAL) {
+		pr_err("GTA4LWIFI_DROP_MGMT_AUTH_FAILED_EVENT_TAIL_VHCI_DIAG hdev=%s addr=%pMR type=%u dst_type=%u hci_status=0x%02x mgmt_status=0x%02x bus=%u cmd=%p\n",
+		       conn->hdev->name, &conn->dst, conn->type, conn->dst_type,
+		       hci_status, status, conn->hdev->bus, cmd);
+		if (cmd) {
+			cmd->cmd_complete(cmd, status);
+			mgmt_pending_remove(cmd);
+		}
+		return;
+	}
+
 	mgmt_event(MGMT_EV_AUTH_FAILED, conn->hdev, &ev, sizeof(ev),
 		    cmd ? cmd->sk : NULL);
 
@@ -7672,8 +8088,18 @@ void mgmt_set_class_of_dev_complete(struct hci_dev *hdev, u8 *dev_class,
 	mgmt_pending_foreach(MGMT_OP_REMOVE_UUID, hdev, sk_lookup, &match);
 
 	if (!status) {
-		mgmt_limited_event(MGMT_EV_CLASS_OF_DEV_CHANGED, hdev, dev_class,
-				   3, HCI_MGMT_DEV_CLASS_EVENTS, NULL);
+		if (hdev->bus == HCI_VIRTUAL) {
+			pr_warn("GTA4LWIFI_SET_DEV_CLASS_SKIP_CLASS_OF_DEV_CHANGED_LIMITED_EVENT_VHCI_FIX "
+				"index=0x%04x bus=%u event=0x%04x "
+				"status=0x%02x "
+				"skipping_class_of_dev_changed_limited_event_only\n",
+				hdev->id, hdev->bus,
+				MGMT_EV_CLASS_OF_DEV_CHANGED,
+				status);
+		} else {
+			mgmt_limited_event(MGMT_EV_CLASS_OF_DEV_CHANGED, hdev, dev_class,
+					   3, HCI_MGMT_DEV_CLASS_EVENTS, NULL);
+		}
 		ext_info_changed(hdev, NULL);
 	}
 
@@ -7704,8 +8130,18 @@ void mgmt_set_local_name_complete(struct hci_dev *hdev, u8 *name, u8 status)
 			return;
 	}
 
-	mgmt_limited_event(MGMT_EV_LOCAL_NAME_CHANGED, hdev, &ev, sizeof(ev),
-			   HCI_MGMT_LOCAL_NAME_EVENTS, cmd ? cmd->sk : NULL);
+	if (hdev->bus == HCI_VIRTUAL) {
+		pr_warn("GTA4LWIFI_SET_LOCAL_NAME_SKIP_LOCAL_NAME_CHANGED_LIMITED_EVENT_VHCI_FIX "
+			"index=0x%04x bus=%u event=0x%04x "
+			"status=0x%02x pending=%u "
+			"skipping_local_name_changed_limited_event_only\n",
+			hdev->id, hdev->bus,
+			MGMT_EV_LOCAL_NAME_CHANGED,
+			status, cmd ? 1 : 0);
+	} else {
+		mgmt_limited_event(MGMT_EV_LOCAL_NAME_CHANGED, hdev, &ev, sizeof(ev),
+				   HCI_MGMT_LOCAL_NAME_EVENTS, cmd ? cmd->sk : NULL);
+	}
 	ext_info_changed(hdev, cmd ? cmd->sk : NULL);
 }
 
@@ -7843,6 +8279,9 @@ void mgmt_device_found(struct hci_dev *hdev, bdaddr_t *bdaddr, u8 link_type,
 	char buf[512];
 	struct mgmt_ev_device_found *ev = (void *)buf;
 	size_t ev_size;
+	u8 *taba7_name = NULL;
+	size_t taba7_name_len = 0;
+	const char *taba7_name_kind = "none";
 
 	/* Don't send events for a non-kernel initiated discovery. With
 	 * LE one exception is if we have pend_le_reports > 0 in which
@@ -7915,6 +8354,43 @@ void mgmt_device_found(struct hci_dev *hdev, bdaddr_t *bdaddr, u8 link_type,
 	ev->eir_len = cpu_to_le16(eir_len + scan_rsp_len);
 	ev_size = sizeof(*ev) + eir_len + scan_rsp_len;
 
+	/* GTA4LWIFI_SAFE_EIR_NAME_LOG_DIAG:
+	 * Parse local name from the already-built EIR payload for safe logging.
+	 * This does not re-enable MGMT_EV_DEVICE_FOUND userspace fanout.
+	 */
+	taba7_name = eir_get_data(ev->eir, eir_len + scan_rsp_len,
+				  EIR_NAME_COMPLETE, &taba7_name_len);
+	if (taba7_name) {
+		taba7_name_kind = "complete";
+	} else {
+		taba7_name_len = 0;
+		taba7_name = eir_get_data(ev->eir, eir_len + scan_rsp_len,
+					  EIR_NAME_SHORT, &taba7_name_len);
+		if (taba7_name)
+			taba7_name_kind = "short";
+	}
+
+	if (!taba7_name)
+		taba7_name_len = 0;
+
+	if (taba7_name_len > HCI_MAX_NAME_LENGTH)
+		taba7_name_len = HCI_MAX_NAME_LENGTH;
+
+	/* GTA4LWIFI_DROP_MGMT_DEVICE_FOUND_EVENT_TAIL_VHCI_DIAG:
+	 * Diagnostic fuse for gta4lwifi VHCI discovery hard reboot.
+	 * Build MGMT_EV_DEVICE_FOUND normally, but suppress only the final
+	 * management event fanout for virtual HCI.
+	 */
+	if (hdev && hdev->bus == HCI_VIRTUAL) {
+		bt_dev_err(hdev,
+                           "GTA4LWIFI_DROP_MGMT_DEVICE_FOUND_EVENT_TAIL_VHCI_DIAG addr=%pMR link_type=%u addr_type=%u rssi=%d flags=0x%08x eir_len=%u scan_rsp_len=%u ev_size=%zu name_kind=%s name_len=%zu name=\"%.*s\" bus=%u",
+                           bdaddr, link_type, addr_type, rssi, flags, eir_len,
+                           scan_rsp_len, ev_size, taba7_name_kind,
+                           taba7_name_len, (int)taba7_name_len,
+                           taba7_name ? (char *)taba7_name : "", hdev->bus);
+		return;
+	}
+
 	mgmt_event(MGMT_EV_DEVICE_FOUND, hdev, ev, ev_size, NULL);
 }
 
@@ -7944,6 +8420,20 @@ void mgmt_remote_name(struct hci_dev *hdev, bdaddr_t *bdaddr, u8 link_type,
 void mgmt_discovering(struct hci_dev *hdev, u8 discovering)
 {
 	struct mgmt_ev_discovering ev;
+
+	/* GTA4LWIFI_SKIP_MGMT_DISCOVERING_VHCI_DIAG:
+	 * Diagnostic fuse for gta4lwifi VHCI discovery hard reboot.
+	 * btmgmt find survives command completion, then hard-reboots right
+	 * after "hci0 type 7 discovering on". Suppress only the mgmt
+	 * discovering state event for virtual HCI.
+	 */
+	if (hdev && hdev->bus == HCI_VIRTUAL) {
+		bt_dev_err(hdev,
+			   "GTA4LWIFI_SKIP_MGMT_DISCOVERING_VHCI_DIAG dropping discovering=%u type=%u state=%u bus=%u",
+			   discovering, hdev->discovery.type,
+			   hdev->discovery.state, hdev->bus);
+		return;
+	}
 
 	BT_DBG("%s discovering %u", hdev->name, discovering);
 

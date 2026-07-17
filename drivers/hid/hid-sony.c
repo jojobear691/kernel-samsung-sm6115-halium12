@@ -2706,14 +2706,60 @@ static int sony_input_configured(struct hid_device *hdev,
 	} else if (sc->quirks & DUALSHOCK4_CONTROLLER) {
 		ret = dualshock4_get_calibration_data(sc);
 		if (ret < 0) {
-			hid_err(hdev, "Failed to get calibration data from Dualshock 4\n");
-			goto err_stop;
+			unsigned int i;
+
+			if (!(sc->quirks & DUALSHOCK4_CONTROLLER_BT)) {
+				hid_err(hdev,
+					"Failed to get calibration data from Dualshock 4\n");
+				goto err_stop;
+			}
+
+			/*
+			 * GTA4LWIFI diagnostic fallback:
+			 *
+			 * BlueZ UHID/HIDP can time out the Bluetooth calibration
+			 * GET_REPORT even though ordinary DS4 input reports are flowing.
+			 * Keep USB behavior unchanged, but allow the Bluetooth gamepad
+			 * to register with neutral, non-zero sensor scaling.
+			 */
+			for (i = 0; i < 6; i++) {
+				sc->ds4_calib_data[i].bias = 0;
+				sc->ds4_calib_data[i].sens_numer = 1;
+				sc->ds4_calib_data[i].sens_denom = 1;
+			}
+
+			sc->ds4_calib_data[0].abs_code = ABS_RX;
+			sc->ds4_calib_data[1].abs_code = ABS_RY;
+			sc->ds4_calib_data[2].abs_code = ABS_RZ;
+			sc->ds4_calib_data[3].abs_code = ABS_X;
+			sc->ds4_calib_data[4].abs_code = ABS_Y;
+			sc->ds4_calib_data[5].abs_code = ABS_Z;
+
+			hid_warn(hdev,
+				"DS4 Bluetooth calibration unavailable; using neutral fallback\n");
+			hid_info(hdev,
+				"GTA4LWIFI_DS4_BT_CALIBRATION_FALLBACK_VHCI_DIAG\n");
 		}
 
 		ret = dualshock4_get_version_info(sc);
 		if (ret < 0) {
-			hid_err(sc->hdev, "Failed to get version data from Dualshock 4\n");
-			goto err_stop;
+			if (!(sc->quirks & DUALSHOCK4_CONTROLLER_BT)) {
+				hid_err(sc->hdev,
+					"Failed to get version data from Dualshock 4\n");
+				goto err_stop;
+			}
+
+			/*
+			 * Firmware feature reports are informational. Do not reject an
+			 * otherwise working Bluetooth gamepad when HIDP times this out.
+			 */
+			sc->hw_version = 0;
+			sc->fw_version = 0;
+
+			hid_warn(hdev,
+				"DS4 Bluetooth version report unavailable; continuing\n");
+			hid_info(hdev,
+				"GTA4LWIFI_DS4_BT_VERSION_NONFATAL_VHCI_DIAG\n");
 		}
 
 		ret = device_create_file(&sc->hdev->dev, &dev_attr_firmware_version);

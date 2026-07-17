@@ -1102,13 +1102,20 @@ done:
 static int hci_sock_bind(struct socket *sock, struct sockaddr *addr,
 			 int addr_len)
 {
-    /*
 	struct sockaddr_hci haddr;
 	struct sock *sk = sock->sk;
 	struct hci_dev *hdev = NULL;
-	struct sk_buff *skb;
 	int len, err = 0;
 
+	/* GTA4LWIFI_HCI_BIND_MINIMAL_RESTORE:
+	 * The original bind body in this Samsung tree was commented out and
+	 * returned success without binding the socket. That breaks BlueZ mgmt
+	 * sockets because they never enter HCI_CHANNEL_CONTROL.
+	 *
+	 * Keep this local restore intentionally minimal. The commented body
+	 * references monitor helper functions that are not present in this tree
+	 * such as create_monitor_ctrl_open/close and send_monitor_replay.
+	 */
 	BT_DBG("sock %p sk %p", sock, sk);
 
 	if (!addr)
@@ -1122,18 +1129,6 @@ static int hci_sock_bind(struct socket *sock, struct sockaddr *addr,
 		return -EINVAL;
 
 	lock_sock(sk);
-
-	// Allow detaching from dead device and attaching to alive device, if
-	// the caller wants to re-bind (instead of close) this socket in
-	// response to hci_sock_dev_event(HCI_DEV_UNREG) notification.
-	//
-	hdev = hci_pi(sk)->hdev;
-	if (hdev && hci_dev_test_flag(hdev, HCI_UNREGISTER)) {
-		hci_pi(sk)->hdev = NULL;
-		sk->sk_state = BT_OPEN;
-		hci_dev_put(hdev);
-	}
-	hdev = NULL;
 
 	if (sk->sk_state == BT_BOUND) {
 		err = -EALREADY;
@@ -1157,43 +1152,14 @@ static int hci_sock_bind(struct socket *sock, struct sockaddr *addr,
 			atomic_inc(&hdev->promisc);
 		}
 
-		hci_pi(sk)->channel = haddr.hci_channel;
-
-		if (!hci_sock_gen_cookie(sk)) {
-			// In the case when a cookie has already been assigned,
-			// then there has been already an ioctl issued against
-			// an unbound socket and with that triggered an open
-			// notification. Send a close notification first to
-			// allow the state transition to bounded.
-
-			skb = create_monitor_ctrl_close(sk);
-			if (skb) {
-				hci_send_to_channel(HCI_CHANNEL_MONITOR, skb,
-						    HCI_SOCK_TRUSTED, NULL);
-				kfree_skb(skb);
-			}
-		}
-
 		if (capable(CAP_NET_ADMIN))
 			hci_sock_set_flag(sk, HCI_SOCK_TRUSTED);
 
+		hci_pi(sk)->channel = haddr.hci_channel;
 		hci_pi(sk)->hdev = hdev;
-
-		// Send event to monitor
-		skb = create_monitor_ctrl_open(sk);
-		if (skb) {
-			hci_send_to_channel(HCI_CHANNEL_MONITOR, skb,
-					    HCI_SOCK_TRUSTED, NULL);
-			kfree_skb(skb);
-		}
 		break;
 
 	case HCI_CHANNEL_USER:
-		if (hci_pi(sk)->hdev) {
-			err = -EALREADY;
-			goto done;
-		}
-
 		if (haddr.hci_dev == HCI_DEV_NONE) {
 			err = -EINVAL;
 			goto done;
@@ -1231,13 +1197,6 @@ static int hci_sock_bind(struct socket *sock, struct sockaddr *addr,
 		err = hci_dev_open(hdev->id);
 		if (err) {
 			if (err == -EALREADY) {
-				// In case the transport is already up and
-				// running, clear the error here.
-
-				// This can happen when opening a user
-				// channel and HCI_AUTO_OFF grace period
-				// is still active.
-
 				err = 0;
 			} else {
 				hci_dev_clear_flag(hdev, HCI_USER_CHANNEL);
@@ -1247,68 +1206,16 @@ static int hci_sock_bind(struct socket *sock, struct sockaddr *addr,
 			}
 		}
 
-		hci_pi(sk)->channel = haddr.hci_channel;
-
-		if (!hci_sock_gen_cookie(sk)) {
-			// In the case when a cookie has already been assigned,
-			// this socket will transition from a raw socket into
-			// a user channel socket. For a clean transition, send
-			// the close notification first.
-
-			skb = create_monitor_ctrl_close(sk);
-			if (skb) {
-				hci_send_to_channel(HCI_CHANNEL_MONITOR, skb,
-						    HCI_SOCK_TRUSTED, NULL);
-				kfree_skb(skb);
-			}
-		}
-
-		// The user channel is restricted to CAP_NET_ADMIN
-		// capabilities and with that implicitly trusted.
-
 		hci_sock_set_flag(sk, HCI_SOCK_TRUSTED);
-
+		hci_pi(sk)->channel = haddr.hci_channel;
 		hci_pi(sk)->hdev = hdev;
-
-		// Send event to monitor
-		skb = create_monitor_ctrl_open(sk);
-		if (skb) {
-			hci_send_to_channel(HCI_CHANNEL_MONITOR, skb,
-					    HCI_SOCK_TRUSTED, NULL);
-			kfree_skb(skb);
-		}
-
 		atomic_inc(&hdev->promisc);
 		break;
 
 	case HCI_CHANNEL_MONITOR:
-		if (haddr.hci_dev != HCI_DEV_NONE) {
-			err = -EINVAL;
-			goto done;
-		}
-
-		if (!capable(CAP_NET_RAW)) {
-			err = -EPERM;
-			goto done;
-		}
-
-		hci_pi(sk)->channel = haddr.hci_channel;
-
-		// The monitor interface is restricted to CAP_NET_RAW
-		// capabilities and with that implicitly trusted.
-
-		hci_sock_set_flag(sk, HCI_SOCK_TRUSTED);
-
-		send_monitor_note(sk, "Linux version %s (%s)",
-				  init_utsname()->release,
-				  init_utsname()->machine);
-		send_monitor_note(sk, "Bluetooth subsystem version %u.%u",
-				  BT_SUBSYS_VERSION, BT_SUBSYS_REVISION);
-		send_monitor_replay(sk);
-		send_monitor_control_replay(sk);
-
-		atomic_inc(&monitor_promisc);
-		break;
+		/* This tree lacks the monitor replay/open/close helpers. */
+		err = -EOPNOTSUPP;
+		goto done;
 
 	case HCI_CHANNEL_LOGGING:
 		if (haddr.hci_dev != HCI_DEV_NONE) {
@@ -1335,50 +1242,12 @@ static int hci_sock_bind(struct socket *sock, struct sockaddr *addr,
 			goto done;
 		}
 
-		// Users with CAP_NET_ADMIN capabilities are allowed
-		// access to all management commands and events. For
-		// untrusted users the interface is restricted and
-		// also only untrusted events are sent.
-
 		if (capable(CAP_NET_ADMIN))
 			hci_sock_set_flag(sk, HCI_SOCK_TRUSTED);
 
 		hci_pi(sk)->channel = haddr.hci_channel;
 
-		// At the moment the index and unconfigured index events
-		// are enabled unconditionally. Setting them on each
-		// socket when binding keeps this functionality. They
-		// however might be cleared later and then sending of these
-		// events will be disabled, but that is then intentional.
-
-		// This also enables generic events that are safe to be
-		// received by untrusted users. Example for such events
-		// are changes to settings, class of device, name etc.
-
 		if (hci_pi(sk)->channel == HCI_CHANNEL_CONTROL) {
-			if (!hci_sock_gen_cookie(sk)) {
-				// In the case when a cookie has already been
-				// assigned, this socket will transition from
-				// a raw socket into a control socket. To
-				// allow for a clean transition, send the
-				// close notification first.
-
-				skb = create_monitor_ctrl_close(sk);
-				if (skb) {
-					hci_send_to_channel(HCI_CHANNEL_MONITOR, skb,
-							    HCI_SOCK_TRUSTED, NULL);
-					kfree_skb(skb);
-				}
-			}
-
-			// Send event to monitor
-			skb = create_monitor_ctrl_open(sk);
-			if (skb) {
-				hci_send_to_channel(HCI_CHANNEL_MONITOR, skb,
-						    HCI_SOCK_TRUSTED, NULL);
-				kfree_skb(skb);
-			}
-
 			hci_sock_set_flag(sk, HCI_MGMT_INDEX_EVENTS);
 			hci_sock_set_flag(sk, HCI_MGMT_UNCONF_INDEX_EVENTS);
 			hci_sock_set_flag(sk, HCI_MGMT_OPTION_EVENTS);
@@ -1394,8 +1263,6 @@ static int hci_sock_bind(struct socket *sock, struct sockaddr *addr,
 done:
 	release_sock(sk);
 	return err;
-    */
-    return 0;
 }
 
 static int hci_sock_getname(struct socket *sock, struct sockaddr *addr,
@@ -1525,6 +1392,8 @@ static int hci_sock_recvmsg(struct socket *sock, struct msghdr *msg,
 	return err ? : copied;
 }
 
+extern atomic_t gta4lwifi_post_fifth_add_uuid_hold_next_mgmt;
+
 static int hci_mgmt_cmd(struct hci_mgmt_chan *chan, struct sock *sk,
 			struct msghdr *msg, size_t msglen)
 {
@@ -1555,6 +1424,9 @@ static int hci_mgmt_cmd(struct hci_mgmt_chan *chan, struct sock *sk,
 	opcode = __le16_to_cpu(hdr->opcode);
 	index = __le16_to_cpu(hdr->index);
 	len = __le16_to_cpu(hdr->len);
+
+	pr_warn("GTA4LWIFI_MGMT_RX_PARSED_TRACE_DIAG channel=%u opcode=0x%04x index=0x%04x len=%u msglen=%zu\n",
+		chan->channel, opcode, index, len, msglen);
 
 	if (len != msglen - sizeof(*hdr)) {
 		err = -EINVAL;
@@ -1635,7 +1507,240 @@ static int hci_mgmt_cmd(struct hci_mgmt_chan *chan, struct sock *sk,
 
 	cp = buf + sizeof(*hdr);
 
+	if (chan->channel == HCI_CHANNEL_CONTROL &&
+	    hdev && hdev->bus == HCI_VIRTUAL) {
+		if (atomic_cmpxchg(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt,
+				   1, 2) == 1) {
+			if (opcode == MGMT_OP_UNBLOCK_DEVICE) {
+				pr_warn("GTA4LWIFI_POST_FIFTH_ADD_UUID_UNBLOCK_ALLOWED_BEFORE_HANDLER_ARM_FOLLOWING_HOLD_VHCI_DIAG channel=%u opcode=0x%04x index=0x%04x len=%u bus=%u hold_state=%d allowing_real_unblock_handler\n",
+					chan->channel, opcode, index, len,
+					hdev->bus,
+					atomic_read(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt));
+			} else {
+				atomic_set(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt, 3);
+
+				pr_warn("GTA4LWIFI_POST_FIFTH_ADD_UUID_EXPECTED_UNBLOCK_MISMATCH_HELD_VHCI_DIAG channel=%u opcode=0x%04x expected_opcode=0x%04x index=0x%04x len=%u bus=%u hold_state=%d returning_msglen_without_handler_or_reply\n",
+					chan->channel, opcode,
+					MGMT_OP_UNBLOCK_DEVICE,
+					index, len, hdev->bus,
+					atomic_read(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt));
+
+				err = msglen;
+				goto done;
+			}
+		} else if (opcode == MGMT_OP_ADD_DEVICE &&
+				   atomic_cmpxchg(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt,
+						  2, 3) == 2) {
+			pr_warn("GTA4LWIFI_POST_UNBLOCK_ADD_DEVICE_ALLOWED_BEFORE_HANDLER_ARM_FOLLOWING_HOLD_VHCI_DIAG channel=%u opcode=0x%04x index=0x%04x len=%u bus=%u hold_state=%d allowing_real_add_device_handler\n",
+				chan->channel, opcode, index, len,
+				hdev->bus,
+				atomic_read(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt));
+		} else if (atomic_cmpxchg(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt,
+						  2, 4) == 2) {
+			pr_warn("GTA4LWIFI_POST_UNBLOCK_EXPECTED_ADD_DEVICE_MISMATCH_HELD_VHCI_DIAG channel=%u opcode=0x%04x expected_opcode=0x%04x index=0x%04x len=%u bus=%u hold_state=%d returning_msglen_without_handler_or_reply\n",
+				chan->channel, opcode, MGMT_OP_ADD_DEVICE,
+				index, len, hdev->bus,
+				atomic_read(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt));
+
+			err = msglen;
+			goto done;
+		} else if (opcode == MGMT_OP_LOAD_LINK_KEYS &&
+                           atomic_cmpxchg(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt,
+                                          3, 4) == 3) {
+                        pr_warn("GTA4LWIFI_LOAD_LINK_KEYS_ALLOWED_BEFORE_REAL_HANDLER_ARM_FOLLOWING_HOLD_VHCI_DIAG "
+                                "channel=%u opcode=0x%04x index=0x%04x "
+                                "len=%u bus=%u hold_state=%d "
+                                "allowing_real_load_link_keys_handler\n",
+                                chan->channel, opcode, index, len,
+                                hdev->bus,
+                                atomic_read(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt));
+                } else if (atomic_cmpxchg(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt,
+					   3, 5) == 3) {
+			pr_warn("GTA4LWIFI_POST_ADD_DEVICE_EXPECTED_LOAD_LINK_KEYS_MISMATCH_HELD_VHCI_DIAG "
+				"channel=%u opcode=0x%04x "
+				"expected_opcode=0x%04x index=0x%04x "
+				"len=%u bus=%u hold_state=%d "
+				"returning_msglen_without_handler_or_reply\n",
+				chan->channel, opcode,
+				MGMT_OP_LOAD_LINK_KEYS,
+				index, len, hdev->bus,
+				atomic_read(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt));
+
+			err = msglen;
+			goto done;
+		} else if (opcode == MGMT_OP_LOAD_LONG_TERM_KEYS &&
+			   atomic_cmpxchg(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt,
+					  4, 6) == 4) {
+			pr_warn("GTA4LWIFI_LOAD_LONG_TERM_KEYS_ALLOWED_BEFORE_REAL_HANDLER_ARM_FOLLOWING_HOLD_VHCI_DIAG "
+				"channel=%u opcode=0x%04x index=0x%04x "
+				"len=%u bus=%u hold_state=%d "
+				"allowing_real_load_long_term_keys_handler\n",
+				chan->channel, opcode, index, len,
+				hdev->bus,
+				atomic_read(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt));
+		} else if (atomic_cmpxchg(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt,
+				   4, 5) == 4) {
+			pr_warn("GTA4LWIFI_POST_LOAD_LINK_KEYS_EXPECTED_LOAD_LONG_TERM_KEYS_MISMATCH_HELD_VHCI_DIAG "
+				"channel=%u opcode=0x%04x expected_opcode=0x%04x "
+				"index=0x%04x len=%u bus=%u hold_state=%d "
+				"returning_msglen_without_handler_or_reply\n",
+				chan->channel, opcode,
+				MGMT_OP_LOAD_LONG_TERM_KEYS,
+				index, len, hdev->bus,
+				atomic_read(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt));
+
+			err = msglen;
+			goto done;
+		} else if (opcode == MGMT_OP_LOAD_CONN_PARAM &&
+			   atomic_cmpxchg(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt,
+					  6, 7) == 6) {
+			pr_warn("GTA4LWIFI_LOAD_CONN_PARAM_ALLOWED_BEFORE_REAL_HANDLER_ARM_FOLLOWING_HOLD_VHCI_DIAG "
+				"channel=%u opcode=0x%04x index=0x%04x "
+				"len=%u bus=%u hold_state=%d "
+				"allowing_real_load_conn_param_handler\n",
+				chan->channel, opcode, index, len,
+				hdev->bus,
+				atomic_read(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt));
+		} else if (atomic_cmpxchg(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt,
+				   6, 5) == 6) {
+			pr_warn("GTA4LWIFI_POST_LOAD_LONG_TERM_KEYS_EXPECTED_LOAD_CONN_PARAM_MISMATCH_HELD_VHCI_DIAG "
+				"channel=%u opcode=0x%04x expected_opcode=0x%04x "
+				"index=0x%04x len=%u bus=%u hold_state=%d "
+				"returning_msglen_without_handler_or_reply\n",
+				chan->channel, opcode,
+				MGMT_OP_LOAD_CONN_PARAM,
+				index, len, hdev->bus,
+				atomic_read(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt));
+
+			err = msglen;
+			goto done;
+		} else if (opcode == MGMT_OP_GET_CONNECTIONS &&
+			   atomic_cmpxchg(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt,
+					  7, 8) == 7) {
+			pr_warn("GTA4LWIFI_GET_CONNECTIONS_ALLOWED_BEFORE_REAL_HANDLER_ARM_FOLLOWING_HOLD_VHCI_DIAG "
+				"channel=%u opcode=0x%04x index=0x%04x "
+				"len=%u bus=%u hold_state=%d "
+				"allowing_real_get_connections_handler\n",
+				chan->channel, opcode, index, len,
+				hdev->bus,
+				atomic_read(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt));
+		} else if (atomic_cmpxchg(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt,
+				   7, 5) == 7) {
+			pr_warn("GTA4LWIFI_POST_LOAD_CONN_PARAM_EXPECTED_GET_CONNECTIONS_MISMATCH_HELD_VHCI_DIAG "
+				"channel=%u opcode=0x%04x expected_opcode=0x%04x "
+				"index=0x%04x len=%u bus=%u hold_state=%d "
+				"returning_msglen_without_handler_or_reply\n",
+				chan->channel, opcode,
+				MGMT_OP_GET_CONNECTIONS,
+				index, len, hdev->bus,
+				atomic_read(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt));
+
+			err = msglen;
+			goto done;
+		} else if (opcode == MGMT_OP_ADD_UUID &&
+			   atomic_cmpxchg(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt,
+					  8, 9) == 8) {
+			pr_warn("GTA4LWIFI_SIXTH_ADD_UUID_ALLOWED_BEFORE_REAL_HANDLER_ARM_FOLLOWING_HOLD_VHCI_DIAG "
+				"channel=%u opcode=0x%04x index=0x%04x "
+				"len=%u bus=%u hold_state=%d "
+				"allowing_real_sixth_add_uuid_handler\n",
+				chan->channel, opcode, index, len,
+				hdev->bus,
+				atomic_read(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt));
+		} else if (atomic_cmpxchg(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt,
+				   8, 5) == 8) {
+			pr_warn("GTA4LWIFI_POST_GET_CONNECTIONS_EXPECTED_ADD_UUID_MISMATCH_HELD_VHCI_DIAG "
+				"channel=%u opcode=0x%04x expected_opcode=0x%04x "
+				"index=0x%04x len=%u bus=%u hold_state=%d "
+				"returning_msglen_without_handler_or_reply\n",
+				chan->channel, opcode, MGMT_OP_ADD_UUID,
+				index, len, hdev->bus,
+				atomic_read(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt));
+
+			err = msglen;
+			goto done;
+		} else if (opcode == MGMT_OP_SET_DEVICE_ID &&
+			   atomic_cmpxchg(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt,
+					  9, 10) == 9) {
+			pr_warn("GTA4LWIFI_SET_DEVICE_ID_ALLOWED_ARM_SET_DEV_CLASS_CONTROL_VHCI_DIAG "
+				"channel=%u opcode=0x%04x index=0x%04x "
+				"len=%u bus=%u hold_state=%d "
+				"allowing_real_set_device_id_handler_arming_set_dev_class_control\n",
+				chan->channel, opcode, index, len,
+				hdev->bus,
+				atomic_read(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt));
+		} else if (atomic_cmpxchg(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt,
+				   9, 5) == 9) {
+			pr_warn("GTA4LWIFI_POST_SIXTH_ADD_UUID_EXPECTED_SET_DEVICE_ID_MISMATCH_HELD_VHCI_DIAG "
+				"channel=%u opcode=0x%04x expected_opcode=0x%04x "
+				"index=0x%04x len=%u bus=%u hold_state=%d "
+				"returning_msglen_without_handler_or_reply\n",
+				chan->channel, opcode,
+				MGMT_OP_SET_DEVICE_ID,
+				index, len, hdev->bus,
+				atomic_read(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt));
+
+			err = msglen;
+			goto done;
+		} else if (opcode == MGMT_OP_SET_DEV_CLASS &&
+			   atomic_cmpxchg(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt,
+					  10, 11) == 10) {
+			pr_warn("GTA4LWIFI_SET_DEV_CLASS_ALLOWED_BEFORE_REAL_HANDLER_ARM_FOLLOWING_HOLD_VHCI_DIAG "
+				"channel=%u opcode=0x%04x index=0x%04x "
+				"len=%u bus=%u hold_state=%d "
+				"allowing_real_set_dev_class_handler\n",
+				chan->channel, opcode, index, len,
+				hdev->bus,
+				atomic_read(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt));
+		} else if (atomic_cmpxchg(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt,
+				   10, 5) == 10) {
+			pr_warn("GTA4LWIFI_POST_SET_DEVICE_ID_EXPECTED_SET_DEV_CLASS_MISMATCH_HELD_VHCI_DIAG "
+				"channel=%u opcode=0x%04x expected_opcode=0x%04x "
+				"index=0x%04x len=%u bus=%u hold_state=%d "
+				"returning_msglen_without_handler_or_reply\n",
+				chan->channel, opcode,
+				MGMT_OP_SET_DEV_CLASS,
+				index, len, hdev->bus,
+				atomic_read(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt));
+
+			err = msglen;
+			goto done;
+		} else if (opcode == MGMT_OP_SET_LOCAL_NAME &&
+			   atomic_cmpxchg(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt,
+					  11, 5) == 11) {
+			pr_warn("GTA4LWIFI_SET_LOCAL_NAME_ALLOWED_BEGIN_FULL_STARTUP_RELEASE_VHCI_DIAG "
+				"channel=%u opcode=0x%04x index=0x%04x "
+				"len=%u bus=%u hold_state=%d "
+				"allowing_real_set_local_name_handler_releasing_all_following_mgmt\n",
+				chan->channel, opcode, index, len,
+				hdev->bus,
+				atomic_read(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt));
+		} else if (atomic_cmpxchg(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt,
+				   11, 5) == 11) {
+			pr_warn("GTA4LWIFI_POST_SET_DEV_CLASS_EXPECTED_SET_LOCAL_NAME_MISMATCH_HELD_VHCI_DIAG "
+				"channel=%u opcode=0x%04x expected_opcode=0x%04x "
+				"index=0x%04x len=%u bus=%u hold_state=%d "
+				"returning_msglen_without_handler_or_reply\n",
+				chan->channel, opcode,
+				MGMT_OP_SET_LOCAL_NAME,
+				index, len, hdev->bus,
+				atomic_read(&gta4lwifi_post_fifth_add_uuid_hold_next_mgmt));
+
+			err = msglen;
+			goto done;
+		}
+	}
+
+	pr_warn("GTA4LWIFI_MGMT_HANDLER_BEFORE_TRACE_DIAG channel=%u opcode=0x%04x index=0x%04x len=%u hdev_present=%u bus=%u entering_handler\n",
+		chan->channel, opcode, index, len,
+		hdev ? 1 : 0, hdev ? hdev->bus : 0xff);
+
 	err = handler->func(sk, hdev, cp, len);
+
+	pr_warn("GTA4LWIFI_MGMT_HANDLER_AFTER_TRACE_DIAG channel=%u opcode=0x%04x index=0x%04x len=%u hdev_present=%u bus=%u handler_rc=%d\n",
+		chan->channel, opcode, index, len,
+		hdev ? 1 : 0, hdev ? hdev->bus : 0xff, err);
+
 	if (err < 0)
 		goto done;
 
@@ -2061,36 +2166,40 @@ static struct proto hci_sk_proto = {
 };
 
 static int hci_sock_create(struct net *net, struct socket *sock, int protocol,
-			   int kern)
+                          int kern)
 {
-    /*
-	struct sock *sk;
+        struct sock *sk;
 
-	BT_DBG("sock %p", sock);
+        BT_DBG("sock %p", sock);
 
-	if (sock->type != SOCK_RAW)
-		return -ESOCKTNOSUPPORT;
+        /* GTA4LWIFI_HCI_SOCK_RESTORE:
+         * This function had the real HCI socket allocation commented out
+         * and returned success with sock->sk/sock->ops unset. Bluebinder
+         * needs a real PF_BLUETOOTH/BTPROTO_HCI socket.
+         */
+        if (sock->type != SOCK_RAW)
+                return -ESOCKTNOSUPPORT;
 
-	sock->ops = &hci_sock_ops;
+        sock->ops = &hci_sock_ops;
 
-	sk = sk_alloc(net, PF_BLUETOOTH, GFP_ATOMIC, &hci_sk_proto, kern);
-	if (!sk)
-		return -ENOMEM;
+        sk = sk_alloc(net, PF_BLUETOOTH, GFP_ATOMIC, &hci_sk_proto, kern);
+        if (!sk)
+                return -ENOMEM;
 
-	sock_init_data(sock, sk);
+        sock_init_data(sock, sk);
 
-	sock_reset_flag(sk, SOCK_ZAPPED);
+        sock_reset_flag(sk, SOCK_ZAPPED);
 
-	sk->sk_protocol = protocol;
+        sk->sk_protocol = protocol;
+        sock->state = SS_UNCONNECTED;
+        sk->sk_state = BT_OPEN;
+        sk->sk_destruct = hci_sock_destruct;
 
-	sock->state = SS_UNCONNECTED;
-	sk->sk_state = BT_OPEN;
-	sk->sk_destruct = hci_sock_destruct;
+        bt_sock_link(&hci_sk_list, sk);
 
-	bt_sock_link(&hci_sk_list, sk);
-    */
-	return 0;
+        return 0;
 }
+
 
 static const struct net_proto_family hci_sock_family_ops = {
 	.family	= PF_BLUETOOTH,

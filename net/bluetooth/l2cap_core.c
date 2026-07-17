@@ -896,6 +896,17 @@ static void l2cap_send_cmd(struct l2cap_conn *conn, u8 ident, u8 code, u16 len,
 	if (!skb)
 		return;
 
+
+	if (conn && conn->hcon && conn->hcon->hdev &&
+	    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+	    conn->hcon->type == ACL_LINK) {
+		BT_WARN("GTA4LWIFI_L2CAP_SEND_CMD_TRACE_VHCI_DIAG code=0x%2.2x ident=0x%2.2x len=%u skb_len=%u dst=%pMR hcon_state=%u hcon_flags=0x%lx info_state=0x%2.2x feat_mask=0x%8.8x local_fixed=0x%2.2x remote_fixed=0x%2.2x log_only_before_hci_send_acl",
+			code, ident, len, skb->len, &conn->hcon->dst,
+			conn->hcon->state, conn->hcon->flags,
+			conn->info_state, conn->feat_mask,
+			conn->local_fixed_chan, conn->remote_fixed_chan);
+	}
+
 	/* Use NO_FLUSH if supported or we have an LE link (which does
 	 * not support auto-flushing packets) */
 	if (lmp_no_flush_capable(conn->hcon->hdev) ||
@@ -1465,13 +1476,33 @@ static void l2cap_send_disconn_req(struct l2cap_chan *chan, int err)
 static void l2cap_conn_start(struct l2cap_conn *conn)
 {
 	struct l2cap_chan *chan, *tmp;
+	unsigned int gta4lwifi_chan_count = 0;
 
 	BT_DBG("conn %p", conn);
+
+	if (conn && conn->hcon && conn->hcon->hdev &&
+	    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+	    conn->hcon->type == ACL_LINK) {
+		BT_WARN("GTA4LWIFI_L2CAP_CONN_START_ENTER_VHCI_DIAG info_state=0x%2.2x info_ident=0x%2.2x feat_mask=0x%8.8x dst=%pMR",
+			conn->info_state, conn->info_ident, conn->feat_mask,
+			&conn->hcon->dst);
+	}
 
 	mutex_lock(&conn->chan_lock);
 
 	list_for_each_entry_safe(chan, tmp, &conn->chan_l, list) {
+		gta4lwifi_chan_count++;
 		l2cap_chan_lock(chan);
+
+		if (conn && conn->hcon && conn->hcon->hdev &&
+		    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+		    conn->hcon->type == ACL_LINK) {
+			BT_WARN("GTA4LWIFI_L2CAP_CONN_START_CHANNEL_VHCI_DIAG index=%u chan=%p chan_type=%u state=%u scid=0x%4.4x dcid=0x%4.4x psm=0x%4.4x conf_state=0x%lx flags=0x%lx dst=%pMR",
+				gta4lwifi_chan_count, chan, chan->chan_type,
+				chan->state, chan->scid, chan->dcid,
+				__le16_to_cpu(chan->psm), chan->conf_state,
+				chan->flags, &conn->hcon->dst);
+		}
 
 		if (chan->chan_type != L2CAP_CHAN_CONN_ORIENTED) {
 			l2cap_chan_ready(chan);
@@ -1502,6 +1533,16 @@ static void l2cap_conn_start(struct l2cap_conn *conn)
 		} else if (chan->state == BT_CONNECT2) {
 			struct l2cap_conn_rsp rsp;
 			char buf[128];
+
+			if (conn && conn->hcon && conn->hcon->hdev &&
+			    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+			    conn->hcon->type == ACL_LINK) {
+				BT_WARN("GTA4LWIFI_L2CAP_CONN_START_CONNECT2_ENTER_VHCI_DIAG chan=%p state=%u scid=0x%4.4x dcid=0x%4.4x conf_state=0x%lx flags=0x%lx dst=%pMR",
+					chan, chan->state, chan->scid, chan->dcid,
+					chan->conf_state, chan->flags,
+					&conn->hcon->dst);
+			}
+
 			rsp.scid = cpu_to_le16(chan->dcid);
 			rsp.dcid = cpu_to_le16(chan->scid);
 
@@ -1521,6 +1562,17 @@ static void l2cap_conn_start(struct l2cap_conn *conn)
 				rsp.status = cpu_to_le16(L2CAP_CS_AUTHEN_PEND);
 			}
 
+			if (conn && conn->hcon && conn->hcon->hdev &&
+			    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+			    conn->hcon->type == ACL_LINK) {
+				BT_WARN("GTA4LWIFI_L2CAP_CONN_START_CONNECT2_BEFORE_CONN_RSP_VHCI_DIAG chan=%p ident=0x%2.2x state=%u result=0x%4.4x status=0x%4.4x conf_req_sent=%u conf_state=0x%lx dst=%pMR",
+					chan, chan->ident, chan->state,
+					__le16_to_cpu(rsp.result),
+					__le16_to_cpu(rsp.status),
+					test_bit(CONF_REQ_SENT, &chan->conf_state),
+					chan->conf_state, &conn->hcon->dst);
+			}
+
 			l2cap_send_cmd(conn, chan->ident, L2CAP_CONN_RSP,
 				       sizeof(rsp), &rsp);
 
@@ -1531,6 +1583,15 @@ static void l2cap_conn_start(struct l2cap_conn *conn)
 			}
 
 			set_bit(CONF_REQ_SENT, &chan->conf_state);
+
+			if (conn && conn->hcon && conn->hcon->hdev &&
+			    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+			    conn->hcon->type == ACL_LINK) {
+				BT_WARN("GTA4LWIFI_L2CAP_CONN_START_CONNECT2_BEFORE_CONF_REQ_VHCI_DIAG chan=%p state=%u scid=0x%4.4x dcid=0x%4.4x conf_state=0x%lx dst=%pMR",
+					chan, chan->state, chan->scid, chan->dcid,
+					chan->conf_state, &conn->hcon->dst);
+			}
+
 			l2cap_send_cmd(conn, l2cap_get_ident(conn), L2CAP_CONF_REQ,
 				       l2cap_build_conf_req(chan, buf, sizeof(buf)), buf);
 			chan->num_conf_req++;
@@ -1540,6 +1601,16 @@ static void l2cap_conn_start(struct l2cap_conn *conn)
 	}
 
 	mutex_unlock(&conn->chan_lock);
+
+
+	if (conn && conn->hcon && conn->hcon->hdev &&
+	    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+	    conn->hcon->type == ACL_LINK) {
+		BT_WARN("GTA4LWIFI_L2CAP_CONN_START_EXIT_VHCI_DIAG channel_count=%u info_state=0x%2.2x info_ident=0x%2.2x feat_mask=0x%8.8x dst=%pMR",
+			gta4lwifi_chan_count, conn->info_state,
+			conn->info_ident, conn->feat_mask,
+			&conn->hcon->dst);
+	}
 }
 
 static void l2cap_le_conn_ready(struct l2cap_conn *conn)
@@ -3985,6 +4056,11 @@ static int l2cap_connect_req(struct l2cap_conn *conn,
 		mgmt_device_connected(hdev, hcon, 0, NULL, 0);
 	hci_dev_unlock(hdev);
 
+
+	if (hdev->bus == HCI_VIRTUAL && hcon && hcon->type == ACL_LINK) {
+		BT_WARN("GTA4LWIFI_L2CAP_CONNECT_REQ_ALLOW_L2CAP_CONNECT_VHCI_DIAG dst=%pMR type=%u state=%u flags=0x%lx allowing_l2cap_connect",
+			&hcon->dst, hcon->type, hcon->state, hcon->flags);
+	}
 	l2cap_connect(conn, cmd, data, L2CAP_CONN_RSP, 0);
 	return 0;
 }
@@ -4490,20 +4566,64 @@ static inline int l2cap_information_rsp(struct l2cap_conn *conn,
 	type   = __le16_to_cpu(rsp->type);
 	result = __le16_to_cpu(rsp->result);
 
+	if (conn && conn->hcon && conn->hcon->hdev &&
+	    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+	    conn->hcon->type == ACL_LINK) {
+		BT_WARN("GTA4LWIFI_L2CAP_INFO_RSP_ENTRY_VHCI_DIAG cmd_ident=0x%2.2x info_ident=0x%2.2x info_state=0x%2.2x type=0x%4.4x result=0x%4.4x cmd_len=%u feat_mask=0x%8.8x dst=%pMR",
+			cmd->ident, conn->info_ident, conn->info_state,
+			type, result, cmd_len, conn->feat_mask,
+			&conn->hcon->dst);
+	}
+
 	BT_DBG("type 0x%4.4x result 0x%2.2x", type, result);
 
 	/* L2CAP Info req/rsp are unbound to channels, add extra checks */
 	if (cmd->ident != conn->info_ident ||
-	    conn->info_state & L2CAP_INFO_FEAT_MASK_REQ_DONE)
+	    conn->info_state & L2CAP_INFO_FEAT_MASK_REQ_DONE) {
+		if (conn && conn->hcon && conn->hcon->hdev &&
+		    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+		    conn->hcon->type == ACL_LINK) {
+			BT_WARN("GTA4LWIFI_L2CAP_INFO_RSP_EARLY_RETURN_VHCI_DIAG cmd_ident=0x%2.2x info_ident=0x%2.2x info_state=0x%2.2x ident_mismatch=%u already_done=%u type=0x%4.4x result=0x%4.4x dst=%pMR",
+				cmd->ident, conn->info_ident, conn->info_state,
+				cmd->ident != conn->info_ident,
+				!!(conn->info_state &
+				   L2CAP_INFO_FEAT_MASK_REQ_DONE),
+				type, result, &conn->hcon->dst);
+		}
 		return 0;
+	}
 
 	cancel_delayed_work(&conn->info_timer);
 
+	if (conn && conn->hcon && conn->hcon->hdev &&
+	    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+	    conn->hcon->type == ACL_LINK) {
+		BT_WARN("GTA4LWIFI_L2CAP_INFO_RSP_AFTER_CANCEL_TIMER_VHCI_DIAG cmd_ident=0x%2.2x info_ident=0x%2.2x info_state=0x%2.2x type=0x%4.4x result=0x%4.4x dst=%pMR",
+			cmd->ident, conn->info_ident, conn->info_state,
+			type, result, &conn->hcon->dst);
+	}
+
 	if (result != L2CAP_IR_SUCCESS) {
+		if (conn && conn->hcon && conn->hcon->hdev &&
+		    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+		    conn->hcon->type == ACL_LINK) {
+			BT_WARN("GTA4LWIFI_L2CAP_INFO_RSP_RESULT_FAIL_BEFORE_CONN_START_VHCI_DIAG result=0x%4.4x type=0x%4.4x info_state_before=0x%2.2x dst=%pMR",
+				result, type, conn->info_state,
+				&conn->hcon->dst);
+		}
+
 		conn->info_state |= L2CAP_INFO_FEAT_MASK_REQ_DONE;
 		conn->info_ident = 0;
 
 		l2cap_conn_start(conn);
+
+		if (conn && conn->hcon && conn->hcon->hdev &&
+		    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+		    conn->hcon->type == ACL_LINK) {
+			BT_WARN("GTA4LWIFI_L2CAP_INFO_RSP_RESULT_FAIL_AFTER_CONN_START_VHCI_DIAG info_state_after=0x%2.2x info_ident=0x%2.2x dst=%pMR",
+				conn->info_state, conn->info_ident,
+				&conn->hcon->dst);
+		}
 
 		return 0;
 	}
@@ -4512,29 +4632,99 @@ static inline int l2cap_information_rsp(struct l2cap_conn *conn,
 	case L2CAP_IT_FEAT_MASK:
 		conn->feat_mask = get_unaligned_le32(rsp->data);
 
+		if (conn && conn->hcon && conn->hcon->hdev &&
+		    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+		    conn->hcon->type == ACL_LINK) {
+			BT_WARN("GTA4LWIFI_L2CAP_INFO_RSP_FEAT_MASK_PARSED_VHCI_DIAG feat_mask=0x%8.8x fixed_chan_supported=%u info_state=0x%2.2x info_ident=0x%2.2x dst=%pMR",
+				conn->feat_mask,
+				!!(conn->feat_mask & L2CAP_FEAT_FIXED_CHAN),
+				conn->info_state, conn->info_ident,
+				&conn->hcon->dst);
+		}
+
 		if (conn->feat_mask & L2CAP_FEAT_FIXED_CHAN) {
 			struct l2cap_info_req req;
 			req.type = cpu_to_le16(L2CAP_IT_FIXED_CHAN);
 
 			conn->info_ident = l2cap_get_ident(conn);
 
+			if (conn && conn->hcon && conn->hcon->hdev &&
+			    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+			    conn->hcon->type == ACL_LINK) {
+				BT_WARN("GTA4LWIFI_L2CAP_INFO_RSP_SEND_FIXED_CHAN_INFO_REQ_VHCI_DIAG new_info_ident=0x%2.2x info_state=0x%2.2x feat_mask=0x%8.8x dst=%pMR",
+					conn->info_ident, conn->info_state,
+					conn->feat_mask, &conn->hcon->dst);
+			}
+
 			l2cap_send_cmd(conn, conn->info_ident,
 				       L2CAP_INFO_REQ, sizeof(req), &req);
 		} else {
+			if (conn && conn->hcon && conn->hcon->hdev &&
+			    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+			    conn->hcon->type == ACL_LINK) {
+				BT_WARN("GTA4LWIFI_L2CAP_INFO_RSP_NO_FIXED_CHAN_BEFORE_CONN_START_VHCI_DIAG info_state_before=0x%2.2x feat_mask=0x%8.8x dst=%pMR",
+					conn->info_state, conn->feat_mask,
+					&conn->hcon->dst);
+			}
+
 			conn->info_state |= L2CAP_INFO_FEAT_MASK_REQ_DONE;
 			conn->info_ident = 0;
 
 			l2cap_conn_start(conn);
+
+			if (conn && conn->hcon && conn->hcon->hdev &&
+			    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+			    conn->hcon->type == ACL_LINK) {
+				BT_WARN("GTA4LWIFI_L2CAP_INFO_RSP_NO_FIXED_CHAN_AFTER_CONN_START_VHCI_DIAG info_state_after=0x%2.2x info_ident=0x%2.2x dst=%pMR",
+					conn->info_state, conn->info_ident,
+					&conn->hcon->dst);
+			}
 		}
 		break;
 
 	case L2CAP_IT_FIXED_CHAN:
 		conn->remote_fixed_chan = rsp->data[0];
+
+		if (conn && conn->hcon && conn->hcon->hdev &&
+		    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+		    conn->hcon->type == ACL_LINK) {
+			BT_WARN("GTA4LWIFI_L2CAP_INFO_RSP_FIXED_CHAN_BEFORE_CONN_START_VHCI_DIAG remote_fixed=0x%2.2x info_state_before=0x%2.2x dst=%pMR",
+				conn->remote_fixed_chan, conn->info_state,
+				&conn->hcon->dst);
+		}
+
 		conn->info_state |= L2CAP_INFO_FEAT_MASK_REQ_DONE;
 		conn->info_ident = 0;
 
 		l2cap_conn_start(conn);
+
+		if (conn && conn->hcon && conn->hcon->hdev &&
+		    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+		    conn->hcon->type == ACL_LINK) {
+			BT_WARN("GTA4LWIFI_L2CAP_INFO_RSP_FIXED_CHAN_AFTER_CONN_START_VHCI_DIAG remote_fixed=0x%2.2x info_state_after=0x%2.2x info_ident=0x%2.2x dst=%pMR",
+				conn->remote_fixed_chan, conn->info_state,
+				conn->info_ident, &conn->hcon->dst);
+		}
 		break;
+
+	default:
+		if (conn && conn->hcon && conn->hcon->hdev &&
+		    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+		    conn->hcon->type == ACL_LINK) {
+			BT_WARN("GTA4LWIFI_L2CAP_INFO_RSP_UNKNOWN_TYPE_VHCI_DIAG type=0x%4.4x result=0x%4.4x info_state=0x%2.2x info_ident=0x%2.2x dst=%pMR",
+				type, result, conn->info_state,
+				conn->info_ident, &conn->hcon->dst);
+		}
+		break;
+	}
+
+	if (conn && conn->hcon && conn->hcon->hdev &&
+	    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+	    conn->hcon->type == ACL_LINK) {
+		BT_WARN("GTA4LWIFI_L2CAP_INFO_RSP_RETURN_VHCI_DIAG type=0x%4.4x result=0x%4.4x info_state=0x%2.2x info_ident=0x%2.2x feat_mask=0x%8.8x remote_fixed=0x%2.2x dst=%pMR",
+			type, result, conn->info_state, conn->info_ident,
+			conn->feat_mask, conn->remote_fixed_chan,
+			&conn->hcon->dst);
 	}
 
 	return 0;
@@ -5428,6 +5618,57 @@ static inline int l2cap_bredr_sig_cmd(struct l2cap_conn *conn,
 				      u8 *data)
 {
 	int err = 0;
+
+
+	if (conn && conn->hcon && conn->hcon->hdev &&
+	    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+	    conn->hcon->type == ACL_LINK && cmd) {
+		BT_WARN("GTA4LWIFI_L2CAP_BREDR_SIG_CMD_TRACE_VHCI_DIAG code=0x%2.2x ident=0x%2.2x len=%u cmd_len=%u dst=%pMR hcon_state=%u hcon_flags=0x%lx log_only_before_existing_dispatch_fence",
+			cmd->code, cmd->ident, __le16_to_cpu(cmd->len), cmd_len,
+			&conn->hcon->dst, conn->hcon->state,
+			conn->hcon->flags);
+	}
+
+	if (conn && conn->hcon && conn->hcon->hdev &&
+	    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+	    conn->hcon->type == ACL_LINK && cmd &&
+	    (cmd->code == L2CAP_CONF_REQ ||
+	     cmd->code == L2CAP_CONF_RSP)) {
+		BT_WARN("GTA4LWIFI_L2CAP_CONFIG_ALLOW_REAL_HANDLER_VHCI_DIAG code=0x%2.2x ident=0x%2.2x len=%u cmd_len=%u dst=%pMR hcon_state=%u hcon_flags=0x%lx allowing_real_l2cap_config_handler",
+			cmd->code, cmd->ident, __le16_to_cpu(cmd->len), cmd_len,
+			&conn->hcon->dst, conn->hcon->state,
+			conn->hcon->flags);
+	}
+
+	if (conn && conn->hcon && conn->hcon->hdev &&
+	    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+	    conn->hcon->type == ACL_LINK && cmd &&
+	    (cmd->code == L2CAP_DISCONN_REQ ||
+	     cmd->code == L2CAP_DISCONN_RSP)) {
+		BT_WARN("GTA4LWIFI_L2CAP_DISCONNECT_ALLOW_REAL_HANDLER_VHCI_DIAG code=0x%2.2x ident=0x%2.2x len=%u cmd_len=%u dst=%pMR hcon_state=%u hcon_flags=0x%lx allowing_real_l2cap_disconnect_handler",
+			cmd->code, cmd->ident,
+			__le16_to_cpu(cmd->len), cmd_len,
+			&conn->hcon->dst,
+			conn->hcon->state,
+			conn->hcon->flags);
+	}
+
+	if (conn && conn->hcon && conn->hcon->hdev &&
+	    conn->hcon->hdev->bus == HCI_VIRTUAL &&
+	    conn->hcon->type == ACL_LINK && cmd &&
+	    cmd->code != L2CAP_CONN_REQ &&
+	    cmd->code != L2CAP_INFO_RSP &&
+	    cmd->code != L2CAP_CONF_REQ &&
+	    cmd->code != L2CAP_CONF_RSP &&
+	    cmd->code != L2CAP_DISCONN_REQ &&
+	    cmd->code != L2CAP_DISCONN_RSP) {
+		BT_WARN("GTA4LWIFI_L2CAP_FULL_SIGNALING_RELEASE_VHCI_DIAG code=0x%2.2x ident=0x%2.2x len=%u cmd_len=%u dst=%pMR hcon_state=%u hcon_flags=0x%lx allowing_real_l2cap_cmd_dispatch_without_fence",
+			cmd->code, cmd->ident,
+			__le16_to_cpu(cmd->len), cmd_len,
+			&conn->hcon->dst,
+			conn->hcon->state,
+			conn->hcon->flags);
+	}
 
 	switch (cmd->code) {
 	case L2CAP_COMMAND_REJ:

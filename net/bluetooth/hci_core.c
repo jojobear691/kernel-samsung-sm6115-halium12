@@ -28,6 +28,7 @@
 #include <linux/export.h>
 #include <linux/idr.h>
 #include <linux/rfkill.h>
+#include <linux/delay.h>
 #include <linux/debugfs.h>
 #include <linux/crypto.h>
 #include <asm/unaligned.h>
@@ -802,8 +803,19 @@ static int hci_init4_req(struct hci_request *req, unsigned long opt)
 	 * stored link keys, but they don't. The quirk lets a driver
 	 * just disable this command.
 	 */
-	if (hdev->commands[6] & 0x80 &&
-	    !test_bit(HCI_QUIRK_BROKEN_STORED_LINK_KEY, &hdev->quirks)) {
+	/* GTA4LWIFI_SKIP_DELETE_STORED_LINK_KEY_SETUP_DIAG:
+	 * Bluebinder/VHCI setup on gta4lwifi + QTI Cherokee reaches
+	 * HCI_OP_DELETE_STORED_LINK_KEY / opcode 0x0c12 and the Android
+	 * side does not return a command-complete event. Skip only for
+	 * virtual HCI setup so normal real UART controllers are untouched.
+	 */
+	if (hdev->bus == HCI_VIRTUAL && hci_dev_test_flag(hdev, HCI_SETUP)) {
+		pr_err("GTA4LWIFI_SKIP_DELETE_STORED_LINK_KEY_SETUP_DIAG id=%d name=%s bus=%u setup=%d commands6=0x%02x quirks=0x%lx\\n",
+		       hdev->id, hdev->name, hdev->bus,
+		       hci_dev_test_flag(hdev, HCI_SETUP),
+		       hdev->commands[6], hdev->quirks);
+	} else if (hdev->commands[6] & 0x80 &&
+		   !test_bit(HCI_QUIRK_BROKEN_STORED_LINK_KEY, &hdev->quirks)) {
 		struct hci_cp_delete_stored_link_key cp;
 
 		bacpy(&cp.bdaddr, BDADDR_ANY);
@@ -825,36 +837,93 @@ static int hci_init4_req(struct hci_request *req, unsigned long opt)
 		hci_req_add(req, HCI_OP_GET_MWS_TRANSPORT_CONFIG, 0, NULL);
 
 	/* Check for Synchronization Train support */
-	if (lmp_sync_train_capable(hdev))
-		hci_req_add(req, HCI_OP_READ_SYNC_TRAIN_PARAMS, 0, NULL);
+	if (lmp_sync_train_capable(hdev)) {
+		/* GTA4LWIFI_SKIP_READ_SYNC_TRAIN_PARAMS_SETUP_DIAG:
+		 * Bluebinder/VHCI setup on gta4lwifi + QTI Cherokee hard-reboots
+		 * immediately after HCI_OP_READ_SYNC_TRAIN_PARAMS / opcode 0x0c77
+		 * returns through the Android Bluetooth HAL path.
+		 * Skip only for virtual HCI setup so normal real UART controllers
+		 * are untouched.
+		 */
+		if (hdev->bus == HCI_VIRTUAL && hci_dev_test_flag(hdev, HCI_SETUP)) {
+			pr_err("GTA4LWIFI_SKIP_READ_SYNC_TRAIN_PARAMS_SETUP_DIAG id=%d name=%s bus=%u setup=%d lmp_features1=0x%02x lmp_features2=0x%02x\n",
+			       hdev->id, hdev->name, hdev->bus,
+			       hci_dev_test_flag(hdev, HCI_SETUP),
+			       hdev->features[1][0], hdev->features[2][0]);
+		} else {
+			hci_req_add(req, HCI_OP_READ_SYNC_TRAIN_PARAMS, 0, NULL);
+		}
+	}
 
 	/* Enable Secure Connections if supported and configured */
 	if (hci_dev_test_flag(hdev, HCI_SSP_ENABLED) &&
 	    bredr_sc_enabled(hdev)) {
-		u8 support = 0x01;
+		/* GTA4LWIFI_SKIP_WRITE_SC_SUPPORT_SETUP_DIAG:
+		 * Bluebinder/VHCI setup on gta4lwifi + QTI Cherokee reboots
+		 * after HCI_OP_READ_SYNC_TRAIN_PARAMS / opcode 0x0c77 and before
+		 * the later LE setup skips are reached. The next init4 command is
+		 * HCI_OP_WRITE_SC_SUPPORT. Skip only for virtual HCI setup so
+		 * normal real UART controllers are untouched.
+		 */
+		if (hdev->bus == HCI_VIRTUAL && hci_dev_test_flag(hdev, HCI_SETUP)) {
+			pr_err("GTA4LWIFI_SKIP_WRITE_SC_SUPPORT_SETUP_DIAG id=%d name=%s bus=%u setup=%d ssp=%d bredr_sc=%d commands=%02x/%02x\n",
+			       hdev->id, hdev->name, hdev->bus,
+			       hci_dev_test_flag(hdev, HCI_SETUP),
+			       hci_dev_test_flag(hdev, HCI_SSP_ENABLED),
+			       bredr_sc_enabled(hdev),
+			       hdev->commands[32], hdev->commands[33]);
+		} else {
+			u8 support = 0x01;
 
-		hci_req_add(req, HCI_OP_WRITE_SC_SUPPORT,
-			    sizeof(support), &support);
+			hci_req_add(req, HCI_OP_WRITE_SC_SUPPORT,
+				    sizeof(support), &support);
+		}
 	}
 
 	/* Set Suggested Default Data Length to maximum if supported */
 	if (hdev->le_features[0] & HCI_LE_DATA_LEN_EXT) {
-		struct hci_cp_le_write_def_data_len cp;
+		/* GTA4LWIFI_SKIP_LE_WRITE_DEF_DATA_LEN_SETUP_DIAG:
+		 * Bluebinder/VHCI setup on gta4lwifi + QTI Cherokee reaches
+		 * HCI_OP_LE_WRITE_DEF_DATA_LEN / opcode 0x2024 and the Android
+		 * side hard-reboots immediately after this setup step.
+		 * Skip only for virtual HCI setup so normal real UART controllers
+		 * are untouched.
+		 */
+		if (hdev->bus == HCI_VIRTUAL && hci_dev_test_flag(hdev, HCI_SETUP)) {
+			pr_err("GTA4LWIFI_SKIP_LE_WRITE_DEF_DATA_LEN_SETUP_DIAG id=%d name=%s bus=%u setup=%d le_features0=0x%02x max_tx_len=%u max_tx_time=%u\n",
+			       hdev->id, hdev->name, hdev->bus,
+			       hci_dev_test_flag(hdev, HCI_SETUP),
+			       hdev->le_features[0], hdev->le_max_tx_len,
+			       hdev->le_max_tx_time);
+		} else {
+			struct hci_cp_le_write_def_data_len cp;
 
-		cp.tx_len = cpu_to_le16(hdev->le_max_tx_len);
-		cp.tx_time = cpu_to_le16(hdev->le_max_tx_time);
-		hci_req_add(req, HCI_OP_LE_WRITE_DEF_DATA_LEN, sizeof(cp), &cp);
+			cp.tx_len = cpu_to_le16(hdev->le_max_tx_len);
+			cp.tx_time = cpu_to_le16(hdev->le_max_tx_time);
+			hci_req_add(req, HCI_OP_LE_WRITE_DEF_DATA_LEN, sizeof(cp), &cp);
+		}
 	}
 
 	/* Set Default PHY parameters if command is supported */
 	if (hdev->commands[35] & 0x20) {
-		struct hci_cp_le_set_default_phy cp;
+		/* GTA4LWIFI_SKIP_LE_SET_DEFAULT_PHY_SETUP_DIAG:
+		 * Qualcomm Cherokee through Android HAL/VHCI reboots or wedges when
+		 * Linux init4 queues HCI_OP_LE_SET_DEFAULT_PHY, opcode 0x2031.
+		 * Skip this one setup command only for VHCI so HCI_SETUP can clear.
+		 */
+		if (hdev->bus == HCI_VIRTUAL) {
+			pr_err("GTA4LWIFI_SKIP_LE_SET_DEFAULT_PHY_SETUP_DIAG id=%d name=%s bus=%u commands35=0x%02x tx=0x%02x rx=0x%02x\\n",
+			       hdev->id, hdev->name, hdev->bus, hdev->commands[35],
+			       hdev->le_tx_def_phys, hdev->le_rx_def_phys);
+		} else {
+			struct hci_cp_le_set_default_phy cp;
 
-		cp.all_phys = 0x00;
-		cp.tx_phys = hdev->le_tx_def_phys;
-		cp.rx_phys = hdev->le_rx_def_phys;
+			cp.all_phys = 0x00;
+			cp.tx_phys = hdev->le_tx_def_phys;
+			cp.rx_phys = hdev->le_rx_def_phys;
 
-		hci_req_add(req, HCI_OP_LE_SET_DEFAULT_PHY, sizeof(cp), &cp);
+			hci_req_add(req, HCI_OP_LE_SET_DEFAULT_PHY, sizeof(cp), &cp);
+		}
 	}
 
 	return 0;
@@ -886,7 +955,32 @@ static int __hci_init(struct hci_dev *hdev)
 	if (err < 0)
 		return err;
 
+	if (hdev->bus == HCI_VIRTUAL && hci_dev_test_flag(hdev, HCI_SETUP))
+		pr_err("GTA4LWIFI_TAIL_DIAG init4_before_sync id=%d name=%s flags=0x%lx dev_flags=0x%lx setup=%d init=%d up=%d running=%d cmd_cnt=%d cmd_q=%u\n",
+		       hdev->id, hdev->name, hdev->flags, hdev->dev_flags,
+		       hci_dev_test_flag(hdev, HCI_SETUP),
+		       test_bit(HCI_INIT, &hdev->flags),
+		       test_bit(HCI_UP, &hdev->flags),
+		       test_bit(HCI_RUNNING, &hdev->flags),
+		       atomic_read(&hdev->cmd_cnt),
+		       skb_queue_len(&hdev->cmd_q));
+
 	err = __hci_req_sync(hdev, hci_init4_req, 0, HCI_INIT_TIMEOUT, NULL);
+
+	if (hdev->bus == HCI_VIRTUAL && hci_dev_test_flag(hdev, HCI_SETUP)) {
+		pr_err("GTA4LWIFI_TAIL_DIAG init4_after_sync id=%d name=%s err=%d flags=0x%lx dev_flags=0x%lx setup=%d init=%d up=%d running=%d req_status=%u req_result=%u cmd_cnt=%d cmd_q=%u sent_cmd=%p\n",
+		       hdev->id, hdev->name, err, hdev->flags, hdev->dev_flags,
+		       hci_dev_test_flag(hdev, HCI_SETUP),
+		       test_bit(HCI_INIT, &hdev->flags),
+		       test_bit(HCI_UP, &hdev->flags),
+		       test_bit(HCI_RUNNING, &hdev->flags),
+		       hdev->req_status, hdev->req_result,
+		       atomic_read(&hdev->cmd_cnt),
+		       skb_queue_len(&hdev->cmd_q),
+		       hdev->sent_cmd);
+		pr_err("GTA4LWIFI_TAIL_DIAG init4_after_sync_no_pause id=%d name=%s continuing_to_do_open\\n", hdev->id, hdev->name);
+	}
+
 	if (err < 0)
 		return err;
 
@@ -1482,6 +1576,19 @@ static int hci_dev_do_open(struct hci_dev *hdev)
 	    !hci_dev_test_flag(hdev, HCI_USER_CHANNEL) &&
 	    hci_dev_test_flag(hdev, HCI_VENDOR_DIAG) && hdev->set_diag)
 		ret = hdev->set_diag(hdev, true);
+
+	if (hdev->bus == HCI_VIRTUAL && hci_dev_test_flag(hdev, HCI_SETUP))
+		pr_err("GTA4LWIFI_TAIL_DIAG do_open_before_clear_init id=%d name=%s ret=%d flags=0x%lx dev_flags=0x%lx setup=%d config=%d unconfigured=%d init=%d up=%d running=%d cmd_cnt=%d cmd_q=%u sent_cmd=%p\n",
+		       hdev->id, hdev->name, ret, hdev->flags, hdev->dev_flags,
+		       hci_dev_test_flag(hdev, HCI_SETUP),
+		       hci_dev_test_flag(hdev, HCI_CONFIG),
+		       hci_dev_test_flag(hdev, HCI_UNCONFIGURED),
+		       test_bit(HCI_INIT, &hdev->flags),
+		       test_bit(HCI_UP, &hdev->flags),
+		       test_bit(HCI_RUNNING, &hdev->flags),
+		       atomic_read(&hdev->cmd_cnt),
+		       skb_queue_len(&hdev->cmd_q),
+		       hdev->sent_cmd);
 
 	clear_bit(HCI_INIT, &hdev->flags);
 
@@ -2173,7 +2280,25 @@ static void hci_power_on(struct work_struct *work)
 				   HCI_AUTO_OFF_TIMEOUT);
 	}
 
+	pr_err("GTA4LWIFI_HCI_SETUP_DIAG power_on_pre_setup_clear id=%d name=%s err=%d flags=0x%lx dev_flags=0x%lx quirks=0x%lx setup=%d config=%d unconfigured=%d raw=%d rawquirk=%d rfkilled=%d autooff=%d up=%d init=%d running=%d bdaddr=%pMR static=%pMR\\n",
+	       hdev->id, hdev->name, err, hdev->flags, hdev->dev_flags, hdev->quirks,
+	       hci_dev_test_flag(hdev, HCI_SETUP),
+	       hci_dev_test_flag(hdev, HCI_CONFIG),
+	       hci_dev_test_flag(hdev, HCI_UNCONFIGURED),
+	       test_bit(HCI_RAW, &hdev->flags),
+	       test_bit(HCI_QUIRK_RAW_DEVICE, &hdev->quirks),
+	       hci_dev_test_flag(hdev, HCI_RFKILLED),
+	       hci_dev_test_flag(hdev, HCI_AUTO_OFF),
+	       test_bit(HCI_UP, &hdev->flags),
+	       test_bit(HCI_INIT, &hdev->flags),
+	       test_bit(HCI_RUNNING, &hdev->flags),
+	       &hdev->bdaddr, &hdev->static_addr);
+
 	if (hci_dev_test_and_clear_flag(hdev, HCI_SETUP)) {
+		pr_err("GTA4LWIFI_HCI_SETUP_DIAG setup_cleared_call_mgmt id=%d name=%s flags=0x%lx dev_flags=0x%lx quirks=0x%lx unconfigured=%d rawquirk=%d\\n",
+		       hdev->id, hdev->name, hdev->flags, hdev->dev_flags, hdev->quirks,
+		       hci_dev_test_flag(hdev, HCI_UNCONFIGURED),
+		       test_bit(HCI_QUIRK_RAW_DEVICE, &hdev->quirks));
 		/* For unconfigured devices, set the HCI_RAW flag
 		 * so that userspace can easily identify them.
 		 */
@@ -2186,8 +2311,25 @@ static void hci_power_on(struct work_struct *work)
 		 *
 		 * Devices with HCI_QUIRK_RAW_DEVICE are ignored
 		 * and no event will be send.
+		 *
+		 * GTA4LWIFI_SKIP_SETUP_MGMT_INDEX_ADDED_DIAG:
+		 * Bluebinder/VHCI on gta4lwifi reaches setup_cleared_call_mgmt
+		 * and then hard-reboots before mgmt_index_added_enter logs.
+		 * Skip only the setup-time mgmt announce for virtual HCI to
+		 * prove whether the mgmt announce is the reset fuse.
 		 */
-		mgmt_index_added(hdev);
+		if (hdev->bus == HCI_VIRTUAL) {
+			pr_err("GTA4LWIFI_SKIP_SETUP_MGMT_INDEX_ADDED_DIAG id=%d name=%s flags=0x%lx dev_flags=0x%lx setup=%d config=%d unconfigured=%d up=%d init=%d running=%d\n",
+			       hdev->id, hdev->name, hdev->flags, hdev->dev_flags,
+			       hci_dev_test_flag(hdev, HCI_SETUP),
+			       hci_dev_test_flag(hdev, HCI_CONFIG),
+			       hci_dev_test_flag(hdev, HCI_UNCONFIGURED),
+			       test_bit(HCI_UP, &hdev->flags),
+			       test_bit(HCI_INIT, &hdev->flags),
+			       test_bit(HCI_RUNNING, &hdev->flags));
+		} else {
+			mgmt_index_added(hdev);
+		}
 	} else if (hci_dev_test_and_clear_flag(hdev, HCI_CONFIG)) {
 		/* When the controller is now configured, then it
 		 * is important to clear the HCI_RAW flag.
@@ -3223,7 +3365,19 @@ int hci_register_dev(struct hci_dev *hdev)
 
 	hci_leds_init(hdev);
 
-	hdev->rfkill = rfkill_alloc(hdev->name, &hdev->dev,
+	/* GTA4LWIFI_HCI_REGISTER_VIRTUAL_SKIP_RFKILL_DIAG:
+         * This port uses VHCI through Bluebinder. Do not create an rfkill child
+         * for HCI_VIRTUAL because rfkill unregister on teardown reboots this
+         * kernel/device.
+         */
+        if (0 && hdev->bus == HCI_VIRTUAL) {
+                pr_err("GTA4LWIFI_HCI_REGISTER_VIRTUAL_SKIP_RFKILL_DIAG skip rfkill create id=%d name=%s bus=%d\n",
+                       hdev->id, hdev->name, hdev->bus);
+                hdev->rfkill = NULL;
+                goto gta4lwifi_hci_register_virtual_skip_rfkill_done;
+        }
+
+        hdev->rfkill = rfkill_alloc(hdev->name, &hdev->dev,
 				    RFKILL_TYPE_BLUETOOTH, &hci_rfkill_ops,
 				    hdev);
 	if (hdev->rfkill) {
@@ -3232,6 +3386,11 @@ int hci_register_dev(struct hci_dev *hdev)
 			hdev->rfkill = NULL;
 		}
 	}
+
+gta4lwifi_hci_register_virtual_skip_rfkill_done:
+        pr_err("GTA4LWIFI_HCI_REGISTER_VIRTUAL_SKIP_RFKILL_DIAG rfkill_after_register id=%d name=%s rfkill=%p bus=%d\n",
+               hdev->id, hdev->name, hdev->rfkill, hdev->bus);
+
 
 	if (hdev->rfkill && rfkill_blocked(hdev->rfkill))
 		hci_dev_set_flag(hdev, HCI_RFKILLED);
@@ -3256,8 +3415,34 @@ int hci_register_dev(struct hci_dev *hdev)
 	if (test_bit(HCI_QUIRK_RAW_DEVICE, &hdev->quirks))
 		hci_dev_set_flag(hdev, HCI_UNCONFIGURED);
 
+	pr_err("GTA4LWIFI_HCI_SETUP_DIAG register id=%d name=%s bus=%u dev_type=%u flags=0x%lx dev_flags=0x%lx quirks=0x%lx setup=%d unconfigured=%d rawquirk=%d rfkilled=%d autooff=%d rfkill=%p\\n",
+	       hdev->id, hdev->name, hdev->bus, hdev->dev_type,
+	       hdev->flags, hdev->dev_flags, hdev->quirks,
+	       hci_dev_test_flag(hdev, HCI_SETUP),
+	       hci_dev_test_flag(hdev, HCI_UNCONFIGURED),
+	       test_bit(HCI_QUIRK_RAW_DEVICE, &hdev->quirks),
+	       hci_dev_test_flag(hdev, HCI_RFKILLED),
+	       hci_dev_test_flag(hdev, HCI_AUTO_OFF),
+	       hdev->rfkill);
+
 	hci_sock_dev_event(hdev, HCI_DEV_REG);
 	hci_dev_hold(hdev);
+
+	/* GTA4LWIFI_VHCI_NO_AUTO_SETUP:
+	 * Diagnostic only. Bluebinder creates a VHCI controller, but the normal
+	 * hci_register_dev path immediately queues hci_power_on(), which starts
+	 * the kernel HCI setup command stream. On gta4lwifi that post-init path
+	 * reboots the tablet. For HCI_VIRTUAL only, publish the controller to
+	 * mgmt without auto setup/power so we can prove the mgmt/index layer.
+	 */
+	if (0 && hdev->bus == HCI_VIRTUAL) {
+		pr_err("GTA4LWIFI_VHCI_NO_AUTO_SETUP id=%d name=%s bus=%u type=%u\\n",
+		       hdev->id, hdev->name, hdev->bus, hdev->dev_type);
+		hci_dev_clear_flag(hdev, HCI_SETUP);
+		hci_dev_clear_flag(hdev, HCI_AUTO_OFF);
+		mgmt_index_added(hdev);
+		return id;
+	}
 
 	queue_work(hdev->req_workqueue, &hdev->power_on);
 
@@ -3286,6 +3471,20 @@ void hci_unregister_dev(struct hci_dev *hdev)
 	write_unlock(&hci_dev_list_lock);
 
 	cancel_work_sync(&hdev->power_on);
+
+	/* GTA4LWIFI_HCI_UNREGISTER_VIRTUAL_RETURN_BEFORE_DOCLOSE_DIAG:
+         * Diagnostic only. #24 proved real Bluebinder/HAL init works but
+         * stopping Bluebinder still reboots even when later rfkill/device
+         * cleanup is skipped. For HCI_VIRTUAL, return before hci_dev_do_close()
+         * to test whether close/shutdown of a fully initialized VHCI is the
+         * remaining reboot trigger.
+         */
+        if (hdev->bus == HCI_VIRTUAL) {
+                pr_err("GTA4LWIFI_HCI_UNREGISTER_VIRTUAL_RETURN_BEFORE_DOCLOSE_DIAG return before do_close id=%d name=%s flags=0x%lx dev_flags=0x%lx rfkill=%p\n",
+                       hdev->id, hdev->name, hdev->flags, hdev->dev_flags, hdev->rfkill);
+
+                return;
+        }
 
 	hci_dev_do_close(hdev);
 
@@ -4412,6 +4611,22 @@ static void hci_cmd_work(struct work_struct *work)
 		skb = skb_dequeue(&hdev->cmd_q);
 		if (!skb)
 			return;
+
+		if (hdev->bus == HCI_VIRTUAL &&
+		    skb->len >= sizeof(struct hci_command_hdr)) {
+			struct hci_command_hdr *gta4_hdr =
+				(void *) skb->data;
+			u16 gta4_opcode =
+				__le16_to_cpu(gta4_hdr->opcode);
+
+			if (gta4_opcode == HCI_OP_WRITE_CLASS_OF_DEV ||
+			    gta4_opcode == HCI_OP_WRITE_EIR)
+				bt_dev_warn(hdev,
+					    "GTA4LWIFI_ADD_UUID_HCI_TX_TRACE_VHCI_DIAG opcode=0x%04x len=%u cmd_cnt=%d cmd_q=%u sending_to_hci_driver\n",
+					    gta4_opcode, skb->len,
+					    atomic_read(&hdev->cmd_cnt),
+					    skb_queue_len(&hdev->cmd_q));
+		}
 
 		kfree_skb(hdev->sent_cmd);
 

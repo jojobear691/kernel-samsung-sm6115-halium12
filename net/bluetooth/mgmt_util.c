@@ -99,6 +99,9 @@ int mgmt_cmd_status(struct sock *sk, u16 index, u16 cmd, u8 status)
 
 	BT_DBG("sock %p, index %u, cmd %u, status %u", sk, index, cmd, status);
 
+	pr_warn("GTA4LWIFI_MGMT_CMD_STATUS_ENTER_TRACE_DIAG index=0x%04x cmd=0x%04x status=0x%02x entering_reply_build\n",
+		index, cmd, status);
+
 	skb = alloc_skb(sizeof(*hdr) + sizeof(*ev), GFP_KERNEL);
 	if (!skb)
 		return -ENOMEM;
@@ -124,6 +127,9 @@ int mgmt_cmd_status(struct sock *sk, u16 index, u16 cmd, u8 status)
 	if (err < 0)
 		kfree_skb(skb);
 
+	pr_warn("GTA4LWIFI_MGMT_CMD_STATUS_AFTER_QUEUE_TRACE_DIAG index=0x%04x cmd=0x%04x status=0x%02x queue_rc=%d\n",
+		index, cmd, status, err);
+
 	if (mskb) {
 		hci_send_to_channel(HCI_CHANNEL_MONITOR, mskb,
 				    HCI_SOCK_TRUSTED, NULL);
@@ -142,6 +148,9 @@ int mgmt_cmd_complete(struct sock *sk, u16 index, u16 cmd, u8 status,
 	int err;
 
 	BT_DBG("sock %p", sk);
+
+	pr_warn("GTA4LWIFI_MGMT_CMD_COMPLETE_ENTER_TRACE_DIAG index=0x%04x cmd=0x%04x status=0x%02x rp_len=%zu entering_reply_build\n",
+		index, cmd, status, rp_len);
 
 	skb = alloc_skb(sizeof(*hdr) + sizeof(*ev) + rp_len, GFP_KERNEL);
 	if (!skb)
@@ -171,6 +180,9 @@ int mgmt_cmd_complete(struct sock *sk, u16 index, u16 cmd, u8 status,
 	err = sock_queue_rcv_skb(sk, skb);
 	if (err < 0)
 		kfree_skb(skb);
+
+	pr_warn("GTA4LWIFI_MGMT_CMD_COMPLETE_AFTER_QUEUE_TRACE_DIAG index=0x%04x cmd=0x%04x status=0x%02x rp_len=%zu queue_rc=%d\n",
+		index, cmd, status, rp_len, err);
 
 	if (mskb) {
 		hci_send_to_channel(HCI_CHANNEL_MONITOR, mskb,

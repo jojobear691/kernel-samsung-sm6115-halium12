@@ -68,8 +68,12 @@ static const char *const bt_slock_key_strings[BT_MAX_PROTO] = {
 
 void bt_sock_reclassify_lock(struct sock *sk, int proto)
 {
-	BUG_ON(!sk);
-	BUG_ON(!sock_allow_reclassification(sk));
+	/* GTA4LWIFI_BT_RECLASSIFY_SILENT: no BUG/WARN for bluebinder socket reclassify path. */
+	if (!sk)
+		return;
+
+	if (!sock_allow_reclassification(sk))
+		return;
 
 	sock_lock_init_class_and_name(sk,
 			bt_slock_key_strings[proto], &bt_slock_key[proto],
@@ -157,8 +161,21 @@ static int bt_sock_create(struct net *net, struct socket *sock, int proto,
 
 	if (bt_proto[proto] && try_module_get(bt_proto[proto]->owner)) {
 		err = bt_proto[proto]->create(net, sock, proto, kern);
-		if (!err)
-			bt_sock_reclassify_lock(sock->sk, proto);
+		if (!err) {
+			/* GTA4LWIFI_BT_CREATE_GUARD:
+			 * Some Halium/bluebinder paths can make a BT protocol create
+			 * callback report success without a complete socket. Generic
+			 * __sock_create() will dereference sock->ops after we return 0,
+			 * so fail safely instead of letting the kernel Oops.
+			 */
+			if (!sock->sk || !sock->ops) {
+				pr_err("GTA4LWIFI_BT_CREATE_GUARD proto=%d type=%d sk=%p ops=%p\\n",
+				       proto, sock->type, sock->sk, sock->ops);
+				err = -EPROTONOSUPPORT;
+			} else {
+				bt_sock_reclassify_lock(sock->sk, proto);
+			}
+		}
 		module_put(bt_proto[proto]->owner);
 	}
 
