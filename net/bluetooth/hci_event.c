@@ -2579,74 +2579,7 @@ if (conn->type == ACL_LINK)
 
 
 	if (ev->status) {
-
-	/* GTA4LWIFI: PS4 DualShock reaches connection-complete safely, but
-	 * allowing the normal connect-confirm fanout appears to reboot this
-	 * device before pstore can capture a panic.  Fence immediately before
-	 * hci_connect_cfm(), which is the handoff into L2CAP/HID/HIDP users.
-	 *
-	 * Address 90:89:5F:25:A9:FD is stored little-endian in bdaddr_t.
-	 */
-	if (hdev->bus == HCI_VIRTUAL &&
-	    ev->status == 0x00 &&
-	    ev->link_type == ACL_LINK &&
-	    ev->bdaddr.b[0] == 0xfd &&
-	    ev->bdaddr.b[1] == 0xa9 &&
-	    ev->bdaddr.b[2] == 0x25 &&
-	    ev->bdaddr.b[3] == 0x5f &&
-	    ev->bdaddr.b[4] == 0x89 &&
-	    ev->bdaddr.b[5] == 0x90) {
-		struct hci_cp_disconnect cp = {
-			.handle = ev->handle,
-			.reason = 0x13,
-		};
-
-		pr_err("GTA4LWIFI_PS4_CONN_COMPLETE_BEFORE_CFM_FENCE_VHCI_DIAG hdev=%s addr=%pMR link_type=%u status=0x%02x handle=0x%4.4x bus=%u conn_state=%u sending_disconnect_skipping_hci_connect_cfm\n",
-		       hdev->name, &ev->bdaddr, ev->link_type, ev->status,
-		       __le16_to_cpu(ev->handle), hdev->bus, conn->state);
-
-		hci_dev_unlock(hdev);
-		hci_send_cmd(hdev, HCI_OP_DISCONNECT, sizeof(cp), &cp);
-		return;
-	}
-
-
-	if (hdev->bus == HCI_VIRTUAL && ev->status == 0x00 &&
-	    ev->link_type == ACL_LINK) {
-		struct hci_cp_disconnect dcp;
-
-		bt_dev_warn(hdev,
-			    "GTA4LWIFI_CONN_COMPLETE_BEFORE_HCI_CONNECT_CFM_CALLSITE_FENCE_VHCI_DIAG addr=%pMR link_type=%u status=0x%2.2x handle=0x%4.4x bus=%u conn=%p state=%u flags=0x%lx disconnecting_immediately_before_hci_connect_cfm_callsite\n",
-			    &ev->bdaddr, ev->link_type, ev->status,
-			    __le16_to_cpu(ev->handle), hdev->bus, conn,
-			    conn->state, conn->flags);
-
-		dcp.handle = ev->handle;
-		dcp.reason = HCI_ERROR_REMOTE_USER_TERM;
-		hci_dev_unlock(hdev);
-		hci_send_cmd(hdev, HCI_OP_DISCONNECT, sizeof(dcp), &dcp);
-		return;
-	}
-
-hci_connect_cfm(conn, ev->status);
-
-	if (hdev->bus == HCI_VIRTUAL && ev->status == 0x00 &&
-	    ev->link_type == ACL_LINK) {
-		struct hci_cp_disconnect dcp;
-
-		bt_dev_warn(hdev,
-			    "GTA4LWIFI_CONN_COMPLETE_AFTER_CFM_FENCE_VHCI_DIAG addr=%pMR link_type=%u status=0x%2.2x handle=0x%4.4x bus=%u conn=%p state=%u flags=0x%lx disconnecting_after_cfm_before_unlock\n",
-			    &ev->bdaddr, ev->link_type, ev->status,
-			    __le16_to_cpu(ev->handle), hdev->bus, conn,
-			    conn->state, conn->flags);
-
-		dcp.handle = ev->handle;
-		dcp.reason = HCI_ERROR_REMOTE_USER_TERM;
-		hci_dev_unlock(hdev);
-		hci_send_cmd(hdev, HCI_OP_DISCONNECT, sizeof(dcp), &dcp);
-		return;
-	}
-
+		hci_connect_cfm(conn, ev->status);
 		hci_conn_del(conn);
 	} else if (ev->link_type != ACL_LINK)
 		hci_connect_cfm(conn, ev->status);

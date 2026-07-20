@@ -1,0 +1,88 @@
+Samsung Galaxy Tab A7 Wi-Fi Bluetooth source manifest
+
+Manifest version: 1
+Review date: 2026-07-19
+Device model: SM-T500
+Device codename: gta4lwifi
+Device type: Wi-Fi-only tablet
+Ubuntu Touch release: 24.04
+Halium base: Halium 12
+Kernel version family: Linux 4.19.300
+
+Kernel repository:
+https://github.com/jojobear691/kernel-samsung-sm6115-halium12
+
+Intended public branch:
+gta4lwifi-halium12
+
+First public experimental Bluetooth snapshot:
+4f1afef068c5c095e51c2f8870f0e3cd50c3d363
+
+Matching Ubuntu Touch port repository:
+https://github.com/jojobear691/ubuntu-touch-samsung-gta4lwifi
+
+Verified port main commit during this review:
+f61bd7bc3fd3a83d7e9548467bfa65cddc2f97eb
+
+UBports adaptation build-tools repository:
+https://gitlab.com/ubports/community-ports/halium-generic-adaptation-build-tools
+
+Inspected build-tools commit:
+c48c8a8c65f19a025fbfa217b5fe8695c443ce59
+
+Kernel build configuration:
+  architecture: AArch64
+  defconfig inputs: gta4l_eur_open_defconfig halium.config
+  image: Image.gz
+  targets: Image.gz modules
+  compiler route: Clang through UBports adaptation build tools
+  exact Clang identity: not established
+
+Publication hardening:
+  hci_event.c removes unreachable diagnostic blocks and a
+  device-specific controller address.
+  mgmt.c no longer prints Bluetooth link-key bytes.
+  The remaining diagnostic reports key_material_redacted.
+
+Pre-hardening public source identities:
+  net/bluetooth/hci_event.c
+    SHA-256: 61c9d396a624ac35bc58ea48b769070a17ee5a04b6b9202417e389634c313bf7
+    Git blob: 3c6894986cb64d2c62b6a3474cd902264dff15f3
+  net/bluetooth/mgmt.c
+    SHA-256: fd305d6f6208820f636dccd22d55f279f56070050075740207a1b1bfdde4a19a
+    Git blob: 1dad6386d1790854b7096e12bef9e185ae26edda
+
+Hardened source endpoint identities:
+  Format: SHA-256  Git-blob  repository-relative-path
+f51d67475fab14a2329e67384900b39c50cf6fdf731c10e5d1e0d61e03509817  0be1049e5e46b9cc4813439e0ef4cb8398f3c993  arch/arm64/configs/defconfig
+537b946b3425ce53f0be2aef8ac1d3964d0ec1ee1f9e4ae6f0f8275a1e4795e5  ce42687815b5d21a1c00dfc1c45cedb9bc58d149  arch/arm64/configs/gta4l_eur_open_defconfig
+b636abfb5bb9b9f5276ae506500a82dbbb9475d49de24a232515a15fd4c69def  f72ec8c4b51d44c3bc695854012444444dd0e9b5  arch/arm64/configs/halium.config
+a07b033c2d6c785954458367d33b7a310537390a943b8f71a136f4593ef11830  0c552bd7217ff7318fef46a98e87068af6aed834  drivers/bluetooth/hci_vhci.c
+d58f71f5df77e2306630c4167a3fd44dc06fdfb92ee1d02f04359a17767cdd8a  2f5c2072fce391925bd2ac1c2d61bad7c6c4da8d  drivers/hid/hid-sony.c
+1b206e79f3790e4bc206e159b728b1042c10c99b21a6014afc5241c34052d8f0  b55588604e8dc6e254185efa866583db48bda3f5  include/net/bluetooth/hci_core.h
+576756a0e81ed39c146f7849510e63a36ae73147ec122410f30b80cc34387dce  b48ad57eaed84c54f550f759e2488c7e54871c7a  net/bluetooth/Makefile
+31e8fbaabc27fce852bfc876749fd5b34ab31a12a200577010b04e3c0b00b9dd  9bb6be1b5577821316a5f778a3588f5163f90242  net/bluetooth/af_bluetooth.c
+ff4558216b0bf1c2c71735b41325b410e38b0be20d63ef218c7c3dd5ccf647a6  307f9feb4f1a73e1663e11bcd49e1109c183e5ea  net/bluetooth/hci_core.c
+9df42913209c9c214b9e6ad90057d3b15c08186896a2cf3844bb5cd56e165a43  1cdbd3658d252d060c20c864eb6ca5fddee32d7d  net/bluetooth/hci_event.c
+e98254ef93f0cad3cd92ea65e3af322f55269e0b51fea6562f9dfc7c3f62f38a  998c74997ff37df96de248e4dadb58622186b4e1  net/bluetooth/hci_request.c
+559045a95f41673e91cc4eb047043b537e1660b1419b9c4882e9ecad1930b74e  5f8f37b12db65a05df61331ca5338489e47c95f3  net/bluetooth/hci_sock.c
+d29ed6df14b263713c337e40eaff1761395e400773fb6ba4fd55bcfe1cea3e95  fa9b1a9f60adc39af3448dbdd742c49f4055666f  net/bluetooth/l2cap_core.c
+2160c43d08f5bd4f98e99c7de338a37a6a31ab5f093699faf60be289a97f400a  53757ae8891943b85fd5c24121bcd0a8143013f3  net/bluetooth/mgmt.c
+761861704f7a47632b41bcaa0813955b4c23447bcf677bdfe0bfd64d5b07e853  b3b8672ca67fb6415699b63cb7a8823e9d477009  net/bluetooth/mgmt_util.c
+
+Publication boundary:
+  No compiled kernel image or module is included by this manifest.
+  No proprietary Samsung or Qualcomm firmware is included.
+  No private runtime log or proof archive is included.
+  No Bluetooth key, credential, token, or device-user data is included.
+
+Reproducibility boundary:
+  These identities establish the reviewed source endpoint.
+  They do not claim a bit-for-bit reproducible kernel build because
+  the exact compiler toolchain and complete build environment are
+  not pinned.
+
+Licensing boundary:
+  The kernel repository retains its existing COPYING file.
+  Imported source files retain their upstream copyright and license
+  notices. Publication does not replace third-party licenses.

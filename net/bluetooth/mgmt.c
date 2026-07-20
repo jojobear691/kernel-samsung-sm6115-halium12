@@ -7484,9 +7484,9 @@ void mgmt_new_link_key(struct hci_dev *hdev, struct link_key *key,
 	ev.key.pin_len = key->pin_len;
 
 	if (hdev->bus == HCI_VIRTUAL) {
-                pr_err("GTA4LWIFI_DROP_MGMT_NEW_LINK_KEY_EVENT_TAIL_VHCI_DIAG hdev=%s addr=%pMR type=0x%02x pin_len=%u persistent=%d bus=%u key_hex=%*phN\n",
-                       hdev->name, &key->bdaddr, key->type, key->pin_len,
-                       persistent, hdev->bus, HCI_LINK_KEY_SIZE, key->val);
+		pr_err("GTA4LWIFI_DROP_MGMT_NEW_LINK_KEY_EVENT_TAIL_VHCI_DIAG hdev=%s type=0x%02x pin_len=%u persistent=%d bus=%u key_material_redacted\n",
+		       hdev->name, key->type, key->pin_len,
+		       persistent, hdev->bus);
                 return;
         }
 
