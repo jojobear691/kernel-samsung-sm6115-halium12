@@ -997,6 +997,10 @@ int drm_notifier_callback(struct notifier_block *self,
 			queue_delayed_work(ts->ts_int_workqueue,
 				&ts->ts_int_work,
 				msecs_to_jiffies(0));
+			/* Finish touch firmware/reset before the panel ON commands.
+			 * The early UNBLANK notifier runs inside panel power-on.
+			 */
+			flush_delayed_work(&ts->ts_int_work);
 #else
 			himax_common_resume(ts->dev);
 #endif

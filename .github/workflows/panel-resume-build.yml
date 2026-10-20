@@ -1,0 +1,33 @@
+name: Panel resume diagnostic kernel
+
+on:
+  push:
+    branches: [recovery/panel-resume-order-20261019]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y bc bison flex build-essential libssl-dev libelf-dev libncurses-dev libtinfo5 python3 lz4
+      - name: Build diagnostic candidate
+        run: bash tools/panel-resume/build-candidate.sh
+      - name: Preserve candidate and build evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: panel-resume-diagnostic-${{ github.sha }}
+          path: panel-artifacts/
+          if-no-files-found: warn
+          retention-days: 14
